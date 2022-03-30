@@ -6,6 +6,7 @@ use Laravel\Scout\EngineManager;
 use Illuminate\Support\ServiceProvider;
 use Elastic\Elasticsearch\ClientBuilder;
 use Shabayek\Elastic\ElasticSearchEngine;
+use Shabayek\Elastic\Console\Commands\ElasticSearchIndex;
 
 class ElasticServiceProvider extends ServiceProvider
 {
@@ -37,6 +38,12 @@ class ElasticServiceProvider extends ServiceProvider
                 app('elasticsearch')
             );
         });
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                ElasticSearchIndex::class,
+            ]);
+        }
     }
 
     /**
