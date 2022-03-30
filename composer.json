@@ -1,0 +1,65 @@
+{
+    "name": "shabayek/laravel-elasticsearch",
+    "description": "Laravel Package For Elasticsearch Scout Engine",
+    "keywords": [
+        "laravel",
+        "scout",
+        "engine",
+        "elasticsearch",
+        "package"
+    ],
+    "homepage": "https://github.com/shabayekdes/laravel-elasticsearch",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Esmail Shabayek",
+            "email": "esmail.shabayek@gmail.com",
+            "homepage": "https://github.com/shabayekdes",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^7.3|^7.4|^8.0",
+        "elasticsearch/elasticsearch": "^8.0",
+        "guzzlehttp/guzzle": "^7.4",
+        "illuminate/contracts": "^8.0",
+        "laravel/scout": "^9.4"
+    },
+    "require-dev": {
+        "nunomaduro/collision": "^5.10",
+        "mockery/mockery": "dev-master",
+        "orchestra/testbench": "^6.0",
+        "phpunit/phpunit": "^9.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Shabayek\\Elastic\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Shabayek\\Elastic\\Tests\\": "tests"
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "test-f": "vendor/bin/phpunit --filter"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Shabayek\\Elastic\\Providers\\ElasticServiceProvider"
+            ],
+            "aliases": {
+                "Elastic": "Shabayek\\Elastic\\Facade"
+            }
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
