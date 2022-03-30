@@ -79,7 +79,7 @@ class ElasticSearchEngine extends Engine
      */
     public function mapIds($results)
     {
-        //
+        return collect(data_get($results, 'hits.hits'))->pluck('_id')->values();
     }
 
     /**
@@ -92,7 +92,16 @@ class ElasticSearchEngine extends Engine
      */
     public function map(Builder $builder, $results, $model)
     {
-        //
+        $hits = data_get($results, 'hits.hits');
+
+        if (count($hits) === 0) {
+            return $model->newCollection();
+        }
+
+        return $model->getScoutModelsByIds(
+            $builder,
+            collect($hits)->pluck('_id')->values()->all()
+        );
     }
 
     /**
@@ -170,7 +179,7 @@ class ElasticSearchEngine extends Engine
      */
     public function keys(Builder $builder)
     {
-        return $this->mapIds($this->search($builder));
+        //
     }
 
     /**
@@ -181,11 +190,7 @@ class ElasticSearchEngine extends Engine
      */
     public function get(Builder $builder)
     {
-        return $this->map(
-            $builder,
-            $this->search($builder),
-            $builder->model
-        );
+        //
     }
 
     /**
@@ -196,10 +201,6 @@ class ElasticSearchEngine extends Engine
      */
     public function cursor(Builder $builder)
     {
-        return $this->lazyMap(
-            $builder,
-            $this->search($builder),
-            $builder->model
-        );
+        //
     }
 }
