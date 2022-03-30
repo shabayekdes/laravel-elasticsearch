@@ -4,6 +4,7 @@ namespace Shabayek\Elastic;
 
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
+use Shabayek\Elastic\Builders\SearchBuilder;
 use Elastic\Elasticsearch\Client;
 
 class ElasticSearchEngine extends Engine
@@ -77,7 +78,12 @@ class ElasticSearchEngine extends Engine
      */
     public function paginate(Builder $builder, $perPage, $page)
     {
-        //
+        $searchBuilder = new SearchBuilder($builder);
+
+        $searchBuilder->setFrom(($page - 1) * $perPage);
+        $searchBuilder->setSize($perPage);
+
+        return $this->client->search($searchBuilder->toArray());
     }
 
     /**
@@ -188,7 +194,7 @@ class ElasticSearchEngine extends Engine
      */
     public function keys(Builder $builder)
     {
-        //
+        return $this->mapIds($this->search($builder));
     }
 
     /**
@@ -199,7 +205,11 @@ class ElasticSearchEngine extends Engine
      */
     public function get(Builder $builder)
     {
-        //
+        return $this->map(
+            $builder,
+            $this->search($builder),
+            $builder->model
+        );
     }
 
     /**
@@ -210,6 +220,10 @@ class ElasticSearchEngine extends Engine
      */
     public function cursor(Builder $builder)
     {
-        //
+        return $this->lazyMap(
+            $builder,
+            $this->search($builder),
+            $builder->model
+        );
     }
 }
