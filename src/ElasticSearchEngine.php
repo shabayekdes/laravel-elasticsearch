@@ -45,7 +45,14 @@ class ElasticSearchEngine extends Engine
      */
     public function delete($models)
     {
-        //
+        $models->each(function ($model) {
+            $params = [
+                'index' => $model->searchableAs(),
+                'id' => $model->id
+            ];
+
+            $this->client->delete($params);
+        });
     }
 
     /**
@@ -56,7 +63,9 @@ class ElasticSearchEngine extends Engine
      */
     public function search(Builder $builder)
     {
-        //
+        $searchBuilder = new SearchBuilder($builder);
+
+        return $this->client->search($searchBuilder->toArray());
     }
     /**
      * Perform the given search on the engine.
