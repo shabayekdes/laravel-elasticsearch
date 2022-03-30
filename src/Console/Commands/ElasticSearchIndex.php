@@ -28,6 +28,7 @@ class ElasticSearchIndex extends Command
 
         $this->client = app('elasticsearch');
     }
+
     /**
      * Execute the console command.
      *
@@ -35,7 +36,7 @@ class ElasticSearchIndex extends Command
      */
     public function handle()
     {
-        if (!class_exists($model = $this->argument('model'))) {
+        if (! class_exists($model = $this->argument('model'))) {
             $this->error("{$model} not found");
         }
 
@@ -50,14 +51,13 @@ class ElasticSearchIndex extends Command
                             'analysis' => [
                                 'analyzer' => $this->analyzers(),
                                 'filter' => $this->filters(),
-                            ]
-                        ]
-                    ]
+                            ],
+                        ],
+                    ],
                 ],
             ];
 
             $this->client->indices()->create($params);
-
         } catch (\Exception $e) {
             $this->error($e->getMessage());
         }
@@ -85,7 +85,7 @@ class ElasticSearchIndex extends Command
                     'lowercase',
                     'words_splitter',
                 ],
-            ]
+            ],
         ];
     }
 }
