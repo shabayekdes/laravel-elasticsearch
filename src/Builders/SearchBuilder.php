@@ -2,8 +2,8 @@
 
 namespace Shabayek\Elastic\Builders;
 
-use Laravel\Scout\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Laravel\Scout\Builder;
 
 class SearchBuilder
 {
@@ -45,7 +45,7 @@ class SearchBuilder
     /**
      * Builder constructor.
      *
-     * @param Builder $builder
+     * @param  Builder  $builder
      */
     public function __construct(Builder $builder)
     {
@@ -56,34 +56,33 @@ class SearchBuilder
     /**
      * Build the request.
      *
-     * @param Builder $builder
-     * @param Model $model
+     * @param  Builder  $builder
+     * @param  Model  $model
      * @return void
      */
     private function buildRequest($builder, $model)
     {
         $this->index = $model->searchableAs();
 
-        if($builder->query){
+        if ($builder->query) {
             $this->multiMatch($model->searchableFields(), $builder->query);
         }
 
-        if($builder->wheres){
-            foreach($builder->wheres as $key => $value){
+        if ($builder->wheres) {
+            foreach ($builder->wheres as $key => $value) {
                 $this->append('term', [$key => $value]);
             }
         }
 
-        if($builder->whereIns){
-            foreach($builder->whereIns as $key => $value){
+        if ($builder->whereIns) {
+            foreach ($builder->whereIns as $key => $value) {
                 $this->append('terms', [$key => $value]);
             }
         }
     }
 
     /**
-     * @param null|int $from
-     *
+     * @param  null|int  $from
      * @return $this
      */
     public function setFrom($from)
@@ -92,9 +91,9 @@ class SearchBuilder
 
         return $this;
     }
+
     /**
-     * @param null|int $size
-     *
+     * @param  null|int  $size
      * @return $this
      */
     public function setSize($size)
@@ -103,12 +102,12 @@ class SearchBuilder
 
         return $this;
     }
+
     /**
      * Add a multi match query.
      *
-     * @param array  $fields
-     * @param string $term
-     *
+     * @param  array  $fields
+     * @param  string  $term
      * @return void
      */
     private function multiMatch(array $fields, $term)
@@ -121,12 +120,12 @@ class SearchBuilder
 
         $this->append('multi_match', $params);
     }
+
     /**
      * Append a query.
      *
      * @param $type
      * @param $params
-     *
      * @return void
      */
     private function append($type, $params)
@@ -135,7 +134,7 @@ class SearchBuilder
     }
 
     /**
-     * Convert object to array
+     * Convert object to array.
      *
      * @return array
      */
@@ -145,12 +144,13 @@ class SearchBuilder
             'index' => $this->index,
             'body' => [
                 'from' => $this->from,
-                'size' => $this->size
-            ]
+                'size' => $this->size,
+            ],
         ];
-        if($this->query){
+        if ($this->query) {
             $request['body']['query'] = $this->query;
         }
+
         return $request;
     }
 }
