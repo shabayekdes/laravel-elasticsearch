@@ -5,8 +5,8 @@ namespace Shabayek\Elastic\Providers;
 use Elasticsearch\ClientBuilder;
 use Laravel\Scout\EngineManager;
 use Illuminate\Support\ServiceProvider;
-use Shabayek\Elastic\ElasticSearchEngine;
 use Shabayek\Elastic\Console\Commands\ElasticSearchIndex;
+use Shabayek\Elastic\ElasticSearchEngine;
 
 class ElasticServiceProvider extends ServiceProvider
 {
@@ -26,9 +26,10 @@ class ElasticServiceProvider extends ServiceProvider
             $port = $app['config']->get('elasticsearch.port');
             $username = $app['config']->get('elasticsearch.username');
             $password = $app['config']->get('elasticsearch.password');
+
             return ClientBuilder::create()
                 ->setHosts([
-                    $host . ':' . $port
+                    $host.':'.$port,
                 ])
                 ->setBasicAuthentication($username, $password)
                 ->build();

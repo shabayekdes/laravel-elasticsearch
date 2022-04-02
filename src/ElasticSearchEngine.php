@@ -16,6 +16,7 @@ class ElasticSearchEngine extends Engine
     {
         $this->client = $client;
     }
+
     /**
      * Update the given model in the index.
      *
@@ -50,7 +51,7 @@ class ElasticSearchEngine extends Engine
         $models->each(function ($model) {
             $params = [
                 'index' => $model->searchableAs(),
-                'id' => $model->id
+                'id' => $model->id,
             ];
 
             $this->client->delete($params);
@@ -69,6 +70,7 @@ class ElasticSearchEngine extends Engine
 
         return $this->client->search($searchBuilder->toArray());
     }
+
     /**
      * Perform the given search on the engine.
      *
