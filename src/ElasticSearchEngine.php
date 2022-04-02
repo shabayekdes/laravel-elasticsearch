@@ -2,10 +2,11 @@
 
 namespace Shabayek\Elastic;
 
+use Elasticsearch\Client;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
+use Illuminate\Support\Facades\Artisan;
 use Shabayek\Elastic\Builders\SearchBuilder;
-use Elastic\Elasticsearch\Client;
 
 class ElasticSearchEngine extends Engine
 {
@@ -150,7 +151,11 @@ class ElasticSearchEngine extends Engine
      */
     public function flush($model)
     {
-        //
+        $this->client->indices()->delete([
+            'index' => $model->searchableAs(),
+        ]);
+
+        Artisan::call('scout:elasticsearch:create', ['model' => get_class($model)]);
     }
 
     /**

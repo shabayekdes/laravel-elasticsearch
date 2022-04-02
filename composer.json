@@ -20,7 +20,7 @@
     ],
     "require": {
         "php": "^7.3|^7.4|^8.0",
-        "elasticsearch/elasticsearch": "^8.0",
+        "elasticsearch/elasticsearch": "^7.17",
         "guzzlehttp/guzzle": "^7.4",
         "illuminate/contracts": "^8.0",
         "laravel/scout": "^9.4"
