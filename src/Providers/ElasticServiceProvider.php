@@ -3,8 +3,8 @@
 namespace Shabayek\Elastic\Providers;
 
 use Elasticsearch\ClientBuilder;
-use Laravel\Scout\EngineManager;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Scout\EngineManager;
 use Shabayek\Elastic\Console\Commands\ElasticSearchIndex;
 use Shabayek\Elastic\ElasticSearchEngine;
 

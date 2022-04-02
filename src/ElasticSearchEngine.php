@@ -3,9 +3,9 @@
 namespace Shabayek\Elastic;
 
 use Elasticsearch\Client;
+use Illuminate\Support\Facades\Artisan;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
-use Illuminate\Support\Facades\Artisan;
 use Shabayek\Elastic\Builders\SearchBuilder;
 
 class ElasticSearchEngine extends Engine
