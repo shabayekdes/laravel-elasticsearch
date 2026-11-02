@@ -70,21 +70,36 @@ class ClientFactory
     /**
      * Build a single node URL from the scheme, host and port options.
      *
+     * The host may be a hostname, an IPv4 or IPv6 address, or a full URL. The
+     * port is added to the URL authority when the host has none, so a path
+     * prefix (for example "https://proxy.example.com/es") is kept after it.
+     *
      * @param  array  $config
      * @return string
      */
     protected function hostFromParts(array $config): string
     {
-        $host = $config['host'] ?? 'localhost';
+        $host = (string) ($config['host'] ?? 'localhost');
+
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+            $host = '['.$host.']';
+        }
 
         if (! preg_match('#^https?://#i', $host)) {
             $host = ($config['scheme'] ?? 'http').'://'.$host;
         }
 
-        if (! empty($config['port']) && parse_url($host, PHP_URL_PORT) === null) {
-            $host = rtrim($host, '/').':'.$config['port'];
+        $parts = parse_url($host);
+
+        if (empty($config['port']) || $parts === false || ! isset($parts['host']) || isset($parts['port'])) {
+            return $host;
         }
 
-        return $host;
+        return $parts['scheme'].'://'
+            .(isset($parts['user']) ? $parts['user'].(isset($parts['pass']) ? ':'.$parts['pass'] : '').'@' : '')
+            .$parts['host'].':'.$config['port']
+            .($parts['path'] ?? '')
+            .(isset($parts['query']) ? '?'.$parts['query'] : '')
+            .(isset($parts['fragment']) ? '#'.$parts['fragment'] : '');
     }
 }

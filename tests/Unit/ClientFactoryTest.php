@@ -42,6 +42,68 @@ class ClientFactoryTest extends TestCase
         $this->assertSame('https://es.internal:9443/', (string) $request->getUri());
     }
 
+    public function test_it_adds_the_port_before_the_path_prefix_of_a_host_url()
+    {
+        $request = $this->sendWith(['host' => 'https://proxy.example.com/es', 'port' => '9200']);
+
+        $this->assertSame('https://proxy.example.com:9200/es/', (string) $request->getUri());
+    }
+
+    public function test_it_adds_the_port_to_a_host_url_without_a_path()
+    {
+        $request = $this->sendWith(['host' => 'http://localhost', 'port' => '9200']);
+
+        $this->assertSame('http://localhost:9200/', (string) $request->getUri());
+    }
+
+    public function test_a_trailing_slash_in_the_host_url_does_not_change_the_request_path()
+    {
+        $request = $this->sendWith(['host' => 'https://es.internal/', 'port' => 9200]);
+
+        $this->assertSame('https://es.internal:9200/', (string) $request->getUri());
+    }
+
+    public function test_it_keeps_the_path_prefix_of_a_host_url_that_already_has_a_port()
+    {
+        $request = $this->sendWith(['host' => 'https://proxy.example.com:8443/es', 'port' => 9200]);
+
+        $this->assertSame('https://proxy.example.com:8443/es/', (string) $request->getUri());
+    }
+
+    public function test_it_keeps_credentials_in_a_host_url()
+    {
+        $request = $this->sendWith(['host' => 'https://elastic:s3cret@proxy.example.com/es', 'port' => 9200]);
+
+        $this->assertSame('https://elastic:s3cret@proxy.example.com:9200/es/', (string) $request->getUri());
+    }
+
+    public function test_it_builds_the_node_url_from_an_ipv4_address()
+    {
+        $request = $this->sendWith(['host' => '10.0.0.5', 'port' => 9200]);
+
+        $this->assertSame('http://10.0.0.5:9200/', (string) $request->getUri());
+    }
+
+    public function test_it_brackets_a_raw_ipv6_address()
+    {
+        $request = $this->sendWith(['scheme' => 'https', 'host' => '::1', 'port' => 9200]);
+
+        $this->assertSame('https://[::1]:9200/', (string) $request->getUri());
+    }
+
+    public function test_it_accepts_a_bracketed_ipv6_address_with_or_without_a_port()
+    {
+        $this->assertSame('http://[2001:db8::1]:9200/', (string) $this->sendWith(['host' => '[2001:db8::1]', 'port' => 9200])->getUri());
+        $this->assertSame('http://[2001:db8::1]:9300/', (string) $this->sendWith(['host' => 'http://[2001:db8::1]:9300', 'port' => 9200])->getUri());
+    }
+
+    public function test_it_leaves_the_host_without_a_port_when_none_is_configured()
+    {
+        $request = $this->sendWith(['host' => 'https://proxy.example.com/es', 'port' => null]);
+
+        $this->assertSame('https://proxy.example.com/es/', (string) $request->getUri());
+    }
+
     public function test_it_accepts_a_comma_separated_list_of_hosts()
     {
         $http = new FakeHttpClient();
