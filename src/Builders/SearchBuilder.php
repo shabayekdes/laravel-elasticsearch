@@ -11,6 +11,14 @@ use Laravel\Scout\Exceptions\NotSupportedException;
 use stdClass;
 use UnitEnum;
 
+/**
+ * Translates a Scout builder into an Elasticsearch search request.
+ *
+ * @internal The engine creates and uses this class. Its properties, methods
+ *           and constants are not covered by the package's backward
+ *           compatibility promise and may change in any release; customise
+ *           searches through Scout's builder, options() or a search callback.
+ */
 class SearchBuilder
 {
     /**

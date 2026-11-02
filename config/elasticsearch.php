@@ -40,7 +40,10 @@ return [
     | ElasticSearch Host
     |--------------------------------------------------------------------------
     |
-    | The IP host of the ElasticSearch server.
+    | The hostname or IP address of the ElasticSearch server, used when
+    | "hosts" is empty. A full URL such as "https://es01:9200" is also
+    | accepted; its scheme and port then take precedence over the options
+    | around it.
     | Default: localhost
     |
     */
