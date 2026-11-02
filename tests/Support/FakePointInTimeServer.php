@@ -32,6 +32,9 @@ class FakePointInTimeServer
     /** Page number (1-based) answered with a failed shard. */
     public ?int $shardFailureOnPage = null;
 
+    /** Page number (1-based) answered with "terminated_early": true. */
+    public ?int $terminatedEarlyOnPage = null;
+
     /** HTTP status of the close request. */
     public int $closeStatus = 200;
 
@@ -100,11 +103,13 @@ class FakePointInTimeServer
 
         $this->currentId = 'pit-'.$this->pages;
         $failed = $this->pages === $this->shardFailureOnPage ? 1 : 0;
+        $terminatedEarly = $this->terminatedEarlyOnPage === null ? [] : ['terminated_early' => $this->pages === $this->terminatedEarlyOnPage];
 
         return FakeHttpClient::response([
             'pit_id' => $this->currentId,
             'took' => 1,
             'timed_out' => false,
+            ...$terminatedEarly,
             '_shards' => [
                 'total' => 2,
                 'successful' => 2 - $failed,

@@ -336,6 +336,37 @@ class CursorTest extends EngineTestCase
         $this->assertSame(['pit-2'], $server->closed);
     }
 
+    public function test_terminated_early_pages_fail_and_close_the_latest_point_in_time()
+    {
+        $this->seedPosts(3000);
+        $server = $this->server($this->rankedDocuments(range(1, 3000)));
+        $server->terminatedEarlyOnPage = 2;
+        $seen = 0;
+
+        try {
+            foreach (Post::search('post')->cursor() as $post) {
+                $seen++;
+            }
+            $this->fail('Expected an IncompleteSearchResultsException.');
+        } catch (IncompleteSearchResultsException $e) {
+            $this->assertSame('Elasticsearch returned incomplete results (no failed shards, terminated early).', $e->getMessage());
+        }
+
+        $this->assertSame(1000, $seen);
+        $this->assertCount(2, $server->searches);
+        $this->assertSame(['pit-2'], $server->closed);
+    }
+
+    public function test_terminated_early_false_is_a_complete_page()
+    {
+        $this->seedPosts(10);
+        $server = $this->server($this->rankedDocuments(range(1, 10)));
+        $server->terminatedEarlyOnPage = 2;
+
+        $this->assertCount(10, Post::search('post')->cursor()->all());
+        $this->assertSame(['pit-1'], $server->closed);
+    }
+
     public function test_a_failure_to_close_the_point_in_time_is_reported_not_thrown()
     {
         Exceptions::fake();

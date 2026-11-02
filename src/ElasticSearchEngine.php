@@ -346,7 +346,7 @@ class ElasticSearchEngine extends Engine
 
                     $pointInTimeId = $results['pit_id'] ?? $pointInTimeId;
 
-                    if (! empty($results['timed_out']) || ($results['_shards']['failed'] ?? 0) > 0) {
+                    if (! empty($results['timed_out']) || ! empty($results['terminated_early']) || ($results['_shards']['failed'] ?? 0) > 0) {
                         throw IncompleteSearchResultsException::fromResults($results);
                     }
 
