@@ -7,6 +7,7 @@ use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 use Laravel\Scout\Builder;
+use Laravel\Scout\Exceptions\NotSupportedException;
 use stdClass;
 use UnitEnum;
 
@@ -53,6 +54,11 @@ class SearchBuilder
     private const OPERATORS = ['=', '!=', '<>', '>', '>=', '<', '<='];
 
     /**
+     * Request body keys that cannot be set through Builder::options().
+     */
+    private const RESERVED_OPTIONS = ['from', 'size', 'query'];
+
+    /**
      * The range query parameter of each comparison operator.
      */
     private const RANGE_OPERATORS = ['>' => 'gt', '>=' => 'gte', '<' => 'lt', '<=' => 'lte'];
@@ -93,7 +99,37 @@ class SearchBuilder
     public function __construct(Builder $builder)
     {
         $this->builder = $builder;
+        $this->guardAgainstUnsupportedFeatures($builder);
         $this->buildRequest($builder, $builder->model);
+    }
+
+    /**
+     * Reject Builder features this engine cannot honour.
+     *
+     * @param  Builder  $builder
+     * @return void
+     *
+     * @throws \Laravel\Scout\Exceptions\NotSupportedException
+     * @throws \InvalidArgumentException
+     */
+    private function guardAgainstUnsupportedFeatures($builder)
+    {
+        // Scout 11 only: Builder::engine() already rejects semantic(), but not hybrid().
+        if (! empty($builder->semanticSearch) || ($builder->hybridSearch ?? null) !== null) {
+            throw new NotSupportedException('The Elasticsearch engine does not support semantic or hybrid searches.');
+        }
+
+        if ($reserved = array_intersect(array_keys($builder->options), self::RESERVED_OPTIONS)) {
+            throw new InvalidArgumentException(sprintf(
+                'The [%s] search option is managed by the engine; use take() or paginate() for from/size, '.
+                'and a search callback to replace the query.',
+                implode(', ', $reserved)
+            ));
+        }
+
+        if (array_key_exists('sort', $builder->options) && $builder->orders) {
+            throw new InvalidArgumentException('Use either orderBy() or the [sort] search option, not both.');
+        }
     }
 
     /**
@@ -390,6 +426,8 @@ class SearchBuilder
         if ($this->sort) {
             $request['body']['sort'] = $this->sort;
         }
+
+        $request['body'] = array_merge($request['body'], $this->builder->options);
 
         return $request;
     }

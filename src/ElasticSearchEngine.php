@@ -4,6 +4,7 @@ namespace Shabayek\Elastic;
 
 use Elastic\Elasticsearch\Client;
 use Elastic\Elasticsearch\Exception\ClientResponseException;
+use Elastic\Elasticsearch\Response\Elasticsearch;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Arr;
 use Illuminate\Support\LazyCollection;
@@ -130,7 +131,7 @@ class ElasticSearchEngine extends Engine
     {
         $searchBuilder = new SearchBuilder($builder);
 
-        return $this->client->search($searchBuilder->toArray())->asArray();
+        return $this->performSearch($builder, $searchBuilder->toArray());
     }
 
     /**
@@ -148,7 +149,29 @@ class ElasticSearchEngine extends Engine
         $searchBuilder->setFrom(($page - 1) * $perPage);
         $searchBuilder->setSize($perPage);
 
-        return $this->client->search($searchBuilder->toArray())->asArray();
+        return $this->performSearch($builder, $searchBuilder->toArray());
+    }
+
+    /**
+     * Run the search request, or hand it to the Builder's search callback.
+     *
+     * The callback receives the Elasticsearch client, the query string and the
+     * request parameters, and returns the raw results (an array or a client
+     * response).
+     *
+     * @param  \Laravel\Scout\Builder  $builder
+     * @param  array  $params
+     * @return mixed
+     */
+    protected function performSearch(Builder $builder, array $params)
+    {
+        if ($builder->callback) {
+            $results = call_user_func($builder->callback, $this->client, $builder->query, $params);
+
+            return $results instanceof Elasticsearch ? $results->asArray() : $results;
+        }
+
+        return $this->client->search($params)->asArray();
     }
 
     /**
