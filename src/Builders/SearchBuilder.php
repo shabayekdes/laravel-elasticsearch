@@ -157,8 +157,8 @@ class SearchBuilder
     /**
      * Append a query.
      *
-     * @param $type
-     * @param $params
+     * @param  $type
+     * @param  $params
      * @return void
      */
     private function append($type, $params)
