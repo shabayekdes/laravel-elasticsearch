@@ -1,6 +1,6 @@
 # Laravel ElasticSearch Scout Engine
 
-[![Github Status](https://github.com/shabayekdes/laravel-elasticsearch/actions/workflows/tests.yml/badge.svg)](https://github.com/shabayekdes/laravel-elasticsearch/actions) [![Styleci Status](https://github.styleci.io/repos/476024226/shield?branch=main)](https://github.styleci.io/repos/476024226) [![Packagist version](https://img.shields.io/packagist/v/shabayek/laravel-elasticsearch)](https://packagist.org/packages/shabayek/laravel-elasticsearch) [![mit](https://img.shields.io/apm/l/laravel)](https://packagist.org/packages/shabayek/laravel-elasticsearch) ![Packagist PHP Version Support](https://img.shields.io/packagist/php-v/shabayek/laravel-elasticsearch) ![Packagist Downloads](https://img.shields.io/packagist/dt/shabayek/laravel-elasticsearch)
+[![Github Status](https://github.com/shabayekdes/laravel-elasticsearch/actions/workflows/tests.yml/badge.svg)](https://github.com/shabayekdes/laravel-elasticsearch/actions) [![Styleci Status](https://github.styleci.io/repos/476024226/shield?branch=main)](https://github.styleci.io/repos/476024226) [![Packagist version](https://img.shields.io/packagist/v/shabayek/laravel-elasticsearch)](https://packagist.org/packages/shabayek/laravel-elasticsearch) [![License](https://img.shields.io/packagist/l/shabayek/laravel-elasticsearch)](LICENSE) ![Packagist PHP Version Support](https://img.shields.io/packagist/php-v/shabayek/laravel-elasticsearch) ![Packagist Downloads](https://img.shields.io/packagist/dt/shabayek/laravel-elasticsearch)
 
 An Elasticsearch engine for [Laravel Scout](https://laravel.com/docs/scout). It indexes your Eloquent models with the bulk API, searches them with full-text queries and non-scoring filters, and streams large result sets with a point in time.
 
@@ -26,9 +26,11 @@ An Elasticsearch engine for [Laravel Scout](https://laravel.com/docs/scout). It 
 - PHP 8.2+ (Laravel 13 requires PHP 8.3+)
 - Laravel 12 or 13
 - Laravel Scout 10.24+ or 11
-- Elasticsearch 8.x or 9.x, with the matching major version of the official PHP client (`elasticsearch/elasticsearch` ^8.16 or ^9.0)
+- Elasticsearch 8.16+ or 9.x, with the matching major version of the official PHP client (`elasticsearch/elasticsearch` ^8.16 or ^9.0)
 
-The 9.x PHP client only talks to Elasticsearch 9 servers; Elasticsearch 8 rejects its requests. Composer installs the 9.x client by default, so for an Elasticsearch 8 cluster require the 8.x client yourself (see below).
+Use the client major that matches your server: the 8.x client for Elasticsearch 8 and the 9.x client for Elasticsearch 9. The [official client documentation](https://github.com/elastic/elasticsearch-php#versioning) puts it this way: "for Elasticsearch `8.16`, use `8.16` of this library or above, but not `9.0`". Clients are forward compatible with servers of the same or a newer minor version within their major; compatibility with older servers is not guaranteed. This package requires client 8.16 or newer, so on Elasticsearch 8 run at least 8.16 (the latest 8.x release is preferable).
+
+Composer installs the 9.x client by default, so for an Elasticsearch 8 cluster require the 8.x client yourself (see below).
 
 ## Installation
 
@@ -112,7 +114,7 @@ Scout's own options (`SCOUT_PREFIX`, `SCOUT_QUEUE`, `scout.soft_delete`, chunk s
 
 ## Indexes
 
-Each model is stored in the index named by its `searchableAs()` method (Scout's prefix plus the table name by default).
+Each model is written to the index named by its `indexableAs()` method and searched in the index named by `searchableAs()`. Both return Scout's prefix plus the table name by default; `indexableAs()` returns `searchableAs()` unless you override it, for example to write through an alias.
 
 Create the index **before** importing records. Otherwise Elasticsearch creates it automatically on the first write, with dynamic mappings and without this package's analysis settings.
 
@@ -130,7 +132,7 @@ A new index gets these default analysis settings: a `default` analyzer using the
 ```php
 use App\Models\Post;
 
-(new Post)->searchableUsing()->createIndex((new Post)->searchableAs(), [
+(new Post)->searchableUsing()->createIndex((new Post)->indexableAs(), [
     'mappings' => [
         'properties' => [
             'title' => ['type' => 'text'],
@@ -147,7 +149,7 @@ use App\Models\Post;
 - Passing `settings` **replaces** the default analysis settings instead of merging with them.
 - When the index already exists, nothing is changed, not even its mappings. To change a mapping, delete the index, create it again and run `scout:import`.
 
-The `scout:elasticsearch:create {model}` command from 0.4 still exists. It only creates the index with the default analysis settings and prints an error if the index already exists; prefer `scout:index`.
+The `scout:elasticsearch:create {model}` command from 0.4 is **deprecated** and will be removed in 2.0; use `scout:index` instead. It now behaves like `scout:index`: it creates the model's `indexableAs()` index with the default analysis settings, leaves an existing index untouched, and exits with a non-zero code when the class is not a searchable model or Elasticsearch returns an error.
 
 ## Models
 
@@ -376,27 +378,20 @@ The guard cannot detect one deliberate workaround: a callback that sends an unsa
 - Semantic and hybrid searches (Scout 11) are not supported and throw a `NotSupportedException`.
 - `where()` operators beyond `=` require Scout 11.
 - Client certificates (mutual TLS) are not configurable.
+- The test suite runs against fake HTTP responses only. The engine has not yet been verified against a real Elasticsearch 8 or 9 server; integration tests are planned before the 1.0.0 release.
 
 ## Upgrading from 0.4
 
-This release rewrites the engine for current Laravel, Scout and Elasticsearch versions. Review these changes before upgrading from 0.4:
-
-- **Requirements**: PHP 8.2+, Laravel 12/13, Scout 10.24+/11 and the Elasticsearch 8.x/9.x PHP client (0.x used PHP 7.3+, Laravel 8, Scout 9 and the 7.x client).
-- **Credentials**: the `elastic`/`elastic` default username and password are gone. Basic authentication is used only when both `ELASTIC_USERNAME` and `ELASTIC_PASSWORD` are set. New options: `ELASTIC_HOSTS`, `ELASTIC_SCHEME`, `ELASTIC_API_KEY`, `ELASTIC_CLOUD_ID`, `ELASTIC_SSL_VERIFICATION` and `ELASTIC_CA_BUNDLE`. Re-publish or compare your `config/elasticsearch.php`.
-- **Document ids**: documents are stored under the model's Scout key and written to `indexableAs()`, with Scout metadata. 0.x used `$model->id`. If you customised `getScoutKey()`, re-import your models.
-- **Flush**: `scout:flush` deletes the documents and keeps the index; 0.x deleted and re-created the index.
-- **Indexes**: `scout:index` and `scout:delete-index` now work.
-- **Filters**: `where()` constraints no longer affect relevance scores, `whereNotIn()` is applied (0.x ignored it), and Scout 11 operators are supported.
-- **Errors**: failed bulk operations throw `BulkOperationException`. Incomplete cursor pages throw `IncompleteSearchResultsException`.
-- **Search**: `searchableFields()` is now optional, totals are exact beyond 10,000 hits, and `cursor()` streams every hit (it did not work in 0.4).
+Version 1.0 rewrites the engine for current Laravel, Scout and Elasticsearch versions and contains breaking changes. Read [UPGRADE.md](UPGRADE.md) before upgrading, and see [CHANGELOG.md](CHANGELOG.md) for the full list of changes.
 
 ## Testing
 
 ```bash
-composer test
+composer test      # PHPUnit
+composer analyse   # Larastan (PHPStan level 5)
 ```
 
-The test suite uses fake HTTP responses and needs no Elasticsearch server.
+The test suite uses fake HTTP responses and needs no Elasticsearch server. Code style is checked by StyleCI.
 
 ## License
 
