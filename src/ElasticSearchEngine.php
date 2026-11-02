@@ -3,8 +3,8 @@
 namespace Shabayek\Elastic;
 
 use Elastic\Elasticsearch\Client;
+use Elastic\Elasticsearch\Exception\ClientResponseException;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\LazyCollection;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
@@ -225,16 +225,27 @@ class ElasticSearchEngine extends Engine
     /**
      * Flush all of the model's records from the engine.
      *
+     * The index itself, with its settings and mappings, is kept.
+     *
      * @param  \Illuminate\Database\Eloquent\Model  $model
      * @return void
      */
     public function flush($model)
     {
-        $this->client->indices()->delete([
-            'index' => $model->searchableAs(),
-        ]);
-
-        Artisan::call('scout:elasticsearch:create', ['model' => get_class($model)]);
+        try {
+            $this->client->deleteByQuery([
+                'index' => $model->indexableAs(),
+                'conflicts' => 'proceed',
+                'refresh' => true,
+                'body' => [
+                    'query' => ['match_all' => new \stdClass()],
+                ],
+            ]);
+        } catch (ClientResponseException $e) {
+            if ($this->errorType($e) !== 'index_not_found_exception') {
+                throw $e;
+            }
+        }
     }
 
     /**
@@ -298,4 +309,17 @@ class ElasticSearchEngine extends Engine
     protected function usesSoftDelete($model): bool
     {
         return in_array(SoftDeletes::class, class_uses_recursive($model));
+    }
+
+    /**
+     * Get the Elasticsearch error type of a failed request.
+     *
+     * @param  \Elastic\Elasticsearch\Exception\ClientResponseException  $e
+     * @return string|null
+     */
+    protected function errorType(ClientResponseException $e): ?string
+    {
+        $body = json_decode((string) $e->getResponse()->getBody(), true);
+
+        return $body['error']['type'] ?? null;
     }}
