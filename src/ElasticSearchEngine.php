@@ -94,12 +94,17 @@ class ElasticSearchEngine extends Engine
      */
     public function delete($models)
     {
-        $models->each(function ($model) {
-            $this->client->delete([
-                'index' => $model->indexableAs(),
-                'id' => $model->getScoutKey(),
-            ]);
-        });
+        if ($models->isEmpty()) {
+            return;
+        }
+
+        $this->bulk((function () use ($models) {
+            foreach ($models as $model) {
+                yield [
+                    'action' => ['delete' => ['_index' => $model->indexableAs(), '_id' => (string) $model->getScoutKey()]],
+                ];
+            }
+        })());
     }
 
     /**
@@ -402,6 +407,9 @@ class ElasticSearchEngine extends Engine
     /**
      * Determine if a bulk operation result is a success.
      *
+     * Deleting a document that is already missing is a success; a missing
+     * index or any other error is not.
+     *
      * @param  string  $type
      * @param  mixed  $result
      * @return bool
@@ -413,6 +421,10 @@ class ElasticSearchEngine extends Engine
         }
 
         $status = (int) ($result['status'] ?? 0);
+
+        if ($type === 'delete' && $status === 404) {
+            return ($result['result'] ?? null) === 'not_found';
+        }
 
         return $status >= 200 && $status < 300;
     }

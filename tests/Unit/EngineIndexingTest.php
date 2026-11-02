@@ -128,25 +128,34 @@ class EngineIndexingTest extends EngineTestCase
         $this->assertSame(['id' => 1, 'title' => 'Meta', 'tenant' => 7], $this->bulkOperations($this->http->lastRequest())[0][2]);
     }
 
-    public function test_delete_removes_each_model_by_its_scout_key_from_the_indexable_index()
+    public function test_delete_removes_models_by_scout_key_from_the_indexable_index_in_one_bulk_request()
     {
         $models = $this->withoutSearchSync(fn () => [
             Product::create(['sku' => 'A-1', 'name' => 'One']),
             Product::create(['sku' => 'B-2', 'name' => 'Two']),
         ]);
+        $this->respondToBulk();
 
         $this->engine()->delete(new Collection($models));
 
-        $this->assertSame(['DELETE /products_write/_doc/A-1', 'DELETE /products_write/_doc/B-2'], $this->sentRequests());
+        $this->assertSame(['POST /_bulk'], $this->sentRequests());
+        $this->assertSame([
+            ['delete', ['_index' => 'products_write', '_id' => 'A-1'], null],
+            ['delete', ['_index' => 'products_write', '_id' => 'B-2'], null],
+        ], $this->bulkOperations($this->http->lastRequest()));
     }
 
     public function test_delete_uses_an_overridden_get_scout_key()
     {
         $document = $this->withoutSearchSync(fn () => Document::create(['slug' => 'to-remove', 'title' => 'x']));
+        $this->respondToBulk();
 
         $this->engine()->delete(new Collection([$document]));
 
-        $this->assertSame(['DELETE /documents/_doc/to-remove'], $this->sentRequests());
+        $this->assertSame(
+            [['delete', ['_index' => 'documents', '_id' => 'to-remove'], null]],
+            $this->bulkOperations($this->http->lastRequest())
+        );
     }
 
     public function test_delete_uses_scout_keys_of_models_restored_by_a_queued_remove_job()
@@ -155,11 +164,15 @@ class EngineIndexingTest extends EngineTestCase
             Document::create(['slug' => 'queued-a', 'title' => 'a']),
             Document::create(['slug' => 'queued-b', 'title' => 'b']),
         ]));
+        $this->respondToBulk();
 
         $job = unserialize(serialize(new RemoveFromSearch($documents)));
         $this->engine()->delete($job->models);
 
-        $this->assertSame(['DELETE /documents/_doc/queued-a', 'DELETE /documents/_doc/queued-b'], $this->sentRequests());
+        $this->assertSame(['queued-a', 'queued-b'], array_map(
+            fn ($operation) => $operation[1]['_id'],
+            $this->bulkOperations($this->http->lastRequest())
+        ));
     }
 
     public function test_delete_with_no_models_sends_nothing()
@@ -173,11 +186,13 @@ class EngineIndexingTest extends EngineTestCase
     {
         $post = $this->withoutSearchSync(fn () => Post::create(['title' => 'Synced']));
 
-        $this->respondToBulk();
+        $this->respondToBulk(2);
 
         $post->searchable();
         $post->unsearchable();
 
-        $this->assertSame(['POST /_bulk', 'DELETE /posts/_doc/1'], $this->sentRequests());
+        $this->assertSame(['POST /_bulk', 'POST /_bulk'], $this->sentRequests());
+        $this->assertSame('index', $this->bulkOperations($this->http->requests[0])[0][0]);
+        $this->assertSame('delete', $this->bulkOperations($this->http->requests[1])[0][0]);
     }
 }

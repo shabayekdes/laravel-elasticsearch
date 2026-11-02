@@ -195,6 +195,64 @@ class EngineBulkTest extends EngineTestCase
         $this->assertStringEndsWith('; and 3 more', $e->getMessage());
     }
 
+    public function test_deletes_are_split_into_chunks_of_the_configured_size()
+    {
+        $this->useChunkSize(2);
+        $this->respondToBulk(2);
+
+        $this->engine()->delete($this->posts(3));
+
+        $this->assertSame([['1', '2'], ['3']], $this->idsPerRequest());
+    }
+
+    public function test_deleting_an_already_missing_document_is_a_success()
+    {
+        $this->respondToBulk(1, fn ($type, $meta) => $meta['_id'] === '2'
+            ? $this->bulkItem($type, $meta, 404, null, 'not_found')
+            : $this->bulkItem($type, $meta));
+
+        $this->engine()->delete($this->posts(3));
+
+        $this->assertCount(1, $this->http->requests);
+    }
+
+    public function test_deleting_from_a_missing_index_is_a_failure()
+    {
+        $this->respondToBulk(1, fn ($type, $meta) => $this->bulkItem($type, $meta, 404, [
+            'type' => 'index_not_found_exception',
+            'reason' => 'no such index [posts]',
+        ]));
+
+        $e = $this->captureBulkException(fn () => $this->engine()->delete($this->posts(1)));
+
+        $this->assertSame(['1'], $e->failedIds());
+        $this->assertSame('index_not_found_exception', $e->failures()[0]['type']);
+    }
+
+    public function test_a_missing_document_on_an_index_operation_is_still_a_failure()
+    {
+        $this->respondToBulk(1, fn ($type, $meta) => $this->bulkItem($type, $meta, 404, null, 'not_found'));
+
+        $e = $this->captureBulkException(fn () => $this->engine()->update($this->posts(1)));
+
+        $this->assertSame(['1'], $e->failedIds());
+    }
+
+    public function test_partial_delete_failures_report_only_the_failed_ids()
+    {
+        $this->respondToBulk(1, fn ($type, $meta) => match ($meta['_id']) {
+            '1' => $this->bulkItem($type, $meta, 404, null, 'not_found'),
+            '3' => $this->bulkItem($type, $meta, 403, ['type' => 'security_exception', 'reason' => 'unauthorized']),
+            default => $this->bulkItem($type, $meta),
+        });
+
+        $e = $this->captureBulkException(fn () => $this->engine()->delete($this->posts(3)));
+
+        $this->assertSame(['3'], $e->failedIds());
+        $this->assertSame('delete', $e->failures()[0]['operation']);
+        $this->assertSame(403, $e->failures()[0]['status']);
+    }
+
     public function test_request_level_authentication_errors_are_not_swallowed()
     {
         $this->http->push(['error' => ['type' => 'security_exception', 'reason' => 'missing authentication credentials'], 'status' => 401], 401);
