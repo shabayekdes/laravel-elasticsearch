@@ -30,6 +30,7 @@
         "laravel/scout": "^10.24 || ^11.0"
     },
     "require-dev": {
+        "larastan/larastan": "^3.13",
         "mockery/mockery": "^1.6",
         "orchestra/testbench": "^10.0 || ^11.0",
         "phpunit/phpunit": "^11.5.3 || ^12.0"
@@ -46,7 +47,8 @@
     },
     "scripts": {
         "test": "vendor/bin/phpunit",
-        "test-f": "vendor/bin/phpunit --filter"
+        "test-f": "vendor/bin/phpunit --filter",
+        "analyse": "vendor/bin/phpstan analyse --memory-limit=1G"
     },
     "extra": {
         "laravel": {
