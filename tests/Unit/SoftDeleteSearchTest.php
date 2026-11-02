@@ -16,9 +16,9 @@ class SoftDeleteSearchTest extends EngineTestCase
      */
     protected function terms(Builder $builder): array
     {
-        $must = (new SearchBuilder($builder))->toArray()['body']['query']['bool']['must'] ?? [];
+        $filter = (new SearchBuilder($builder))->toArray()['body']['query']['bool']['filter'] ?? [];
 
-        return array_values(array_column($must, 'term'));
+        return array_values(array_column($filter, 'term'));
     }
 
     protected function articleBuilder(array $wheres): Builder
@@ -56,10 +56,10 @@ class SoftDeleteSearchTest extends EngineTestCase
 
     public function test_unsupported_scout_11_operators_are_rejected_instead_of_sending_an_invalid_query()
     {
-        $builder = $this->articleBuilder([['field' => 'views', 'operator' => '>', 'value' => 10]]);
+        $builder = $this->articleBuilder([['field' => 'title', 'operator' => 'like', 'value' => '%x%']]);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('The [>] operator is not supported');
+        $this->expectExceptionMessage('The [like] operator is not supported for [title]');
 
         new SearchBuilder($builder);
     }
@@ -137,8 +137,8 @@ class SoftDeleteSearchTest extends EngineTestCase
      */
     protected function filtersSent(): array
     {
-        $must = $this->requestBody($this->http->lastRequest())['query']['bool']['must'] ?? [];
+        $filter = $this->requestBody($this->http->lastRequest())['query']['bool']['filter'] ?? [];
 
-        return array_values(array_column($must, 'term'));
+        return array_values(array_column($filter, 'term'));
     }
 }

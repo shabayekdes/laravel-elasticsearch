@@ -2,9 +2,13 @@
 
 namespace Shabayek\Elastic\Builders;
 
+use BackedEnum;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 use Laravel\Scout\Builder;
+use stdClass;
+use UnitEnum;
 
 class SearchBuilder
 {
@@ -44,6 +48,37 @@ class SearchBuilder
     private $size = 5000;
 
     /**
+     * The supported "where" operators.
+     */
+    private const OPERATORS = ['=', '!=', '<>', '>', '>=', '<', '<='];
+
+    /**
+     * The range query parameter of each comparison operator.
+     */
+    private const RANGE_OPERATORS = ['>' => 'gt', '>=' => 'gte', '<' => 'lt', '<=' => 'lte'];
+
+    /**
+     * Scoring (full-text) clauses.
+     *
+     * @var array
+     */
+    private $must = [];
+
+    /**
+     * Non-scoring filter clauses.
+     *
+     * @var array
+     */
+    private $filter = [];
+
+    /**
+     * Excluding clauses.
+     *
+     * @var array
+     */
+    private $mustNot = [];
+
+    /**
      * Builder constructor.
      *
      * @param  Builder  $builder
@@ -69,49 +104,162 @@ class SearchBuilder
             $this->multiMatch($model->searchableFields(), $builder->query);
         }
 
-        foreach ($this->equalityWheres($builder->wheres) as [$field, $value]) {
-            $this->append('term', [$field => $value]);
+        foreach ($this->wheres($builder->wheres) as [$field, $operator, $value]) {
+            $this->where($field, $operator, $value);
         }
 
-        if ($builder->whereIns) {
-            foreach ($builder->whereIns as $key => $value) {
-                $this->append('terms', [$key => $value]);
-            }
+        foreach ($builder->whereIns as $field => $values) {
+            $this->whereIn($field, $values);
+        }
+
+        foreach ($builder->whereNotIns as $field => $values) {
+            $this->whereNotIn($field, $values);
         }
     }
 
     /**
-     * Normalize the "where" constraints to [field, value] pairs.
+     * Normalize the "where" constraints to [field, operator, value] rows.
      *
-     * Scout 10 stores them as "field => value", Scout 11 as a list of
-     * ['field' => ..., 'operator' => ..., 'value' => ...] rows.
+     * Scout 10 stores them as "field => value" (equality), Scout 11 as a list
+     * of ['field' => ..., 'operator' => ..., 'value' => ...] rows.
      *
      * @param  array  $wheres
+     * @return array
+     */
+    private function wheres(array $wheres): array
+    {
+        $rows = [];
+
+        foreach ($wheres as $key => $where) {
+            if (is_int($key) && is_array($where) && array_key_exists('field', $where) && array_key_exists('operator', $where)) {
+                $rows[] = [$where['field'], $where['operator'], $where['value'] ?? null];
+            } else {
+                $rows[] = [$key, '=', $where];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Add a "where" constraint as a non-scoring filter.
+     *
+     * A null value matches documents where the field is missing or null.
+     *
+     * @param  string  $field
+     * @param  string  $operator
+     * @param  mixed  $value
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function where($field, $operator, $value)
+    {
+        $value = $this->normalizeValue($value);
+
+        switch ($operator) {
+            case '=':
+                $value === null
+                    ? $this->mustNot(['exists' => ['field' => $field]])
+                    : $this->filter(['term' => [$field => $value]]);
+
+                return;
+            case '!=':
+            case '<>':
+                $value === null
+                    ? $this->filter(['exists' => ['field' => $field]])
+                    : $this->mustNot(['term' => [$field => $value]]);
+
+                return;
+            case '>':
+            case '>=':
+            case '<':
+            case '<=':
+                if ($value === null) {
+                    throw new InvalidArgumentException("The [{$operator}] operator cannot be used with a null value for [{$field}].");
+                }
+
+                $this->filter(['range' => [$field => [self::RANGE_OPERATORS[$operator] => $value]]]);
+
+                return;
+        }
+
+        throw new InvalidArgumentException(sprintf(
+            'The [%s] operator is not supported for [%s]. Supported operators: %s.',
+            $operator,
+            $field,
+            implode(', ', self::OPERATORS)
+        ));
+    }
+
+    /**
+     * Add a "where in" constraint as a non-scoring filter.
+     *
+     * @param  string  $field
+     * @param  array  $values
+     * @return void
+     */
+    private function whereIn($field, array $values)
+    {
+        $values = $this->normalizeValues($field, $values);
+
+        $values === []
+            ? $this->filter(['match_none' => new stdClass()])
+            : $this->filter(['terms' => [$field => $values]]);
+    }
+
+    /**
+     * Add a "where not in" constraint.
+     *
+     * @param  string  $field
+     * @param  array  $values
+     * @return void
+     */
+    private function whereNotIn($field, array $values)
+    {
+        $values = $this->normalizeValues($field, $values);
+
+        if ($values !== []) {
+            $this->mustNot(['terms' => [$field => $values]]);
+        }
+    }
+
+    /**
+     * Normalize a list of values for a terms query.
+     *
+     * @param  string  $field
+     * @param  array  $values
      * @return array
      *
      * @throws \InvalidArgumentException
      */
-    private function equalityWheres(array $wheres): array
+    private function normalizeValues($field, array $values): array
     {
-        $pairs = [];
+        $values = array_map(fn ($value) => $this->normalizeValue($value), array_values($values));
 
-        foreach ($wheres as $key => $where) {
-            if (! is_int($key) || ! is_array($where) || ! array_key_exists('field', $where) || ! array_key_exists('operator', $where)) {
-                $pairs[] = [$key, $where];
-
-                continue;
-            }
-
-            if ($where['operator'] !== '=') {
-                throw new InvalidArgumentException(
-                    "The [{$where['operator']}] operator is not supported in where clauses; only [=] is supported."
-                );
-            }
-
-            $pairs[] = [$where['field'], $where['value'] ?? null];
+        if (in_array(null, $values, true)) {
+            throw new InvalidArgumentException(
+                "The values for [{$field}] contain null; use where('{$field}', null) to match missing values."
+            );
         }
 
-        return $pairs;
+        return $values;
+    }
+
+    /**
+     * Convert enums and dates to values Elasticsearch understands.
+     *
+     * @param  mixed  $value
+     * @return mixed
+     */
+    private function normalizeValue($value)
+    {
+        return match (true) {
+            $value instanceof BackedEnum => $value->value,
+            $value instanceof UnitEnum => $value->name,
+            $value instanceof DateTimeInterface => $value->format(DateTimeInterface::ATOM),
+            default => $value,
+        };
     }
 
     /**
@@ -155,15 +303,54 @@ class SearchBuilder
     }
 
     /**
-     * Append a query.
+     * Add a scoring query clause.
      *
-     * @param $type
-     * @param $params
+     * @param  string  $type
+     * @param  array  $params
      * @return void
      */
     private function append($type, $params)
     {
-        $this->query['bool']['must'][][$type] = $params;
+        $this->must[] = [$type => $params];
+        $this->compileQuery();
+    }
+
+    /**
+     * Add a non-scoring filter clause.
+     *
+     * @param  array  $clause
+     * @return void
+     */
+    private function filter(array $clause)
+    {
+        $this->filter[] = $clause;
+        $this->compileQuery();
+    }
+
+    /**
+     * Add an excluding clause.
+     *
+     * @param  array  $clause
+     * @return void
+     */
+    private function mustNot(array $clause)
+    {
+        $this->mustNot[] = $clause;
+        $this->compileQuery();
+    }
+
+    /**
+     * Build the bool query from the collected clauses.
+     *
+     * @return void
+     */
+    private function compileQuery()
+    {
+        $this->query = ['bool' => array_filter([
+            'must' => $this->must,
+            'filter' => $this->filter,
+            'must_not' => $this->mustNot,
+        ])];
     }
 
     /**
