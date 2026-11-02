@@ -581,6 +581,54 @@ class CursorTest extends EngineTestCase
         $this->assertSame(['pit-0'], $server->closed);
     }
 
+    public function test_a_cursor_search_callback_cannot_return_results_of_an_earlier_unchecked_request()
+    {
+        $this->seedPosts(6);
+        $server = $this->server($this->rankedDocuments(range(1, 6)));
+        $server->acceptStalePointInTimeIds = true;
+        $this->configure('batch_size', 2);
+        $seen = 0;
+
+        $cursor = Post::search('post', function (Client $client, $query, array $params) {
+            $unsafe = $params;
+            $unsafe['body']['size'] = 6;
+            $unsafeResponse = $client->search($unsafe);
+
+            $client->search($params);
+
+            return $unsafeResponse;
+        })->cursor();
+
+        try {
+            foreach ($cursor as $post) {
+                $seen++;
+            }
+            $this->fail('Expected a LogicException.');
+        } catch (LogicException $e) {
+            $this->assertSame('A cursor search callback must return the client response of its last request unchanged.', $e->getMessage());
+        }
+
+        $this->assertSame(0, $seen);
+        $this->assertSame([6, 2], array_column($server->searches, 'size'));
+        $this->assertSame(['pit-0'], $server->closed);
+    }
+
+    public function test_a_cursor_search_callback_must_return_the_client_response_not_an_array()
+    {
+        $this->seedPosts(1);
+        $server = $this->server([['id' => 1]]);
+
+        try {
+            Post::search('post', fn (Client $client, $query, array $params) => $client->search($params)->asArray())->cursor()->all();
+            $this->fail('Expected a LogicException.');
+        } catch (LogicException $e) {
+            $this->assertSame('A cursor search callback must return the client response of its last request unchanged.', $e->getMessage());
+        }
+
+        $this->assertCount(1, $server->searches);
+        $this->assertSame(['pit-0'], $server->closed);
+    }
+
     public function test_a_cursor_search_callback_can_change_the_query_and_other_options()
     {
         $this->seedPosts(3);

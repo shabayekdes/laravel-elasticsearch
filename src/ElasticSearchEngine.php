@@ -219,8 +219,10 @@ class ElasticSearchEngine extends Engine
      * but must send its search through the given client, as the last request
      * of the callback, to "_search" without an index and with the pit,
      * search_after, sort, size and from body keys unchanged (none of them in
-     * the query string). Otherwise the page is discarded and a LogicException
-     * is thrown, before any of its hits are used.
+     * the query string). It must return the client's response to that request
+     * unchanged, so the results are known to come from the checked request.
+     * Otherwise the page is discarded and a LogicException is thrown, before
+     * any of its hits are used.
      *
      * @param  \Laravel\Scout\Builder  $builder
      * @param  array  $params
@@ -236,13 +238,24 @@ class ElasticSearchEngine extends Engine
 
         $transport = $this->client->getTransport();
         $previous = $transport->getLastRequest();
+        $previousResponse = $transport->getLastResponse();
 
-        $results = $this->performSearch($builder, $params);
+        $response = call_user_func($builder->callback, $this->client, $builder->query, $params);
 
         $request = $transport->getLastRequest();
 
         if ($request === null || $request === $previous) {
             throw new LogicException('A cursor search callback must send its search through the given client.');
+        }
+
+        // The client response proxies the PSR-7 response it wraps; its body
+        // stream identifies which transport response it is.
+        if (! $response instanceof Elasticsearch
+            || $response->getBody() !== $transport->getLastResponse()?->getBody()
+            || $response->getBody() === $previousResponse?->getBody()) {
+            throw new LogicException(
+                'A cursor search callback must return the client response of its last request unchanged.'
+            );
         }
 
         parse_str($request->getUri()->getQuery(), $query);
@@ -268,7 +281,7 @@ class ElasticSearchEngine extends Engine
             ));
         }
 
-        return $results;
+        return $response->asArray();
     }
 
     /**

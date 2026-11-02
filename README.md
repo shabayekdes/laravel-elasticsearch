@@ -39,12 +39,23 @@ php artisan vendor:publish --provider="Shabayek\Elastic\Providers\ElasticService
 
 ### Search callbacks and cursors
 
-A search callback (`Post::search($query, fn ($client, $query, $params) => ...)`) receives the request parameters and returns the raw results. For `get()`, `paginate()` and `raw()` it may change any parameter.
+A search callback (`Post::search($query, fn ($client, $query, $params) => ...)`) receives the request parameters and returns the raw results. For `get()`, `paginate()` and `raw()` it may change any parameter and may return an array or a client response.
 
 `cursor()` pages through a point in time with `search_after`, so the callback runs once per page under a stricter contract:
 
 - It may change the query and other options (for example `highlight` or `_source`).
 - It must send the search through the given `$client`, as its last request, to `_search` without an index.
 - It must send `pit`, `search_after`, `sort`, `size` and `from` in the body exactly as received, and must not add them to the query string.
+- It must return the response of that last request, as returned by `$client->search()`: not an array, and not the response of another request.
+
+```php
+Post::search('lamp', function (Client $client, $query, array $params) {
+    $params['body']['query'] = ['match' => ['title' => ['query' => $query, 'fuzziness' => 'AUTO']]];
+
+    return $client->search($params);
+})->cursor();
+```
+
+Use the `withRawResults()` callback to change the results of each page.
 
 If the callback breaks this contract, the cursor throws a `LogicException` before using that page, and closes the point in time. Use `orderBy()` or the `sort` search option to choose the order.

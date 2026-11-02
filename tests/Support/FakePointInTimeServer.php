@@ -35,6 +35,9 @@ class FakePointInTimeServer
     /** Page number (1-based) answered with "terminated_early": true. */
     public ?int $terminatedEarlyOnPage = null;
 
+    /** Accept any PIT id issued so far, as Elasticsearch does, not only the latest. */
+    public bool $acceptStalePointInTimeIds = false;
+
     /** HTTP status of the close request. */
     public int $closeStatus = 200;
 
@@ -79,7 +82,10 @@ class FakePointInTimeServer
         $this->searches[] = $body;
         $this->pages++;
 
-        if (($body['pit']['id'] ?? null) !== $this->currentId) {
+        $id = $body['pit']['id'] ?? null;
+        $issued = $this->acceptStalePointInTimeIds && is_string($id) && preg_match('/^pit-(\d+)$/', $id, $m) && (int) $m[1] < $this->pages;
+
+        if ($id !== $this->currentId && ! $issued) {
             return FakeHttpClient::response(['error' => ['type' => 'search_context_missing_exception']], 404);
         }
 
