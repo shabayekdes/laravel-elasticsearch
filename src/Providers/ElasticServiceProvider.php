@@ -46,7 +46,9 @@ class ElasticServiceProvider extends ServiceProvider
                     $app->make(Client::class),
                     (bool) $app['config']->get('scout.soft_delete', false),
                     (int) $app['config']->get('elasticsearch.indexing.chunk_size', 500),
-                    $app['config']->get('elasticsearch.indexing.refresh', false) ?? false
+                    $app['config']->get('elasticsearch.indexing.refresh', false) ?? false,
+                    (int) $app['config']->get('elasticsearch.cursor.batch_size', 1000),
+                    (string) $app['config']->get('elasticsearch.cursor.keep_alive', '1m')
                 );
             });
         });

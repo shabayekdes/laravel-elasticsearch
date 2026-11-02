@@ -420,6 +420,54 @@ class SearchBuilder
     }
 
     /**
+     * Build a request for one page of a point in time (PIT) search.
+     *
+     * Hits are sorted by the requested order (relevance by default) with the
+     * "_shard_doc" tiebreaker, giving a stable total order for search_after.
+     * The request has no index: the PIT determines it.
+     *
+     * @param  string  $pointInTimeId
+     * @param  string  $keepAlive
+     * @param  int  $size
+     * @param  array|null  $searchAfter
+     * @return array
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function toPointInTimeArray(string $pointInTimeId, string $keepAlive, int $size, ?array $searchAfter = null): array
+    {
+        $options = $this->builder->options;
+
+        if ($managed = array_intersect(array_keys($options), ['pit', 'search_after'])) {
+            throw new InvalidArgumentException(sprintf(
+                'The [%s] search option is managed by the engine when iterating a cursor.',
+                implode(', ', $managed)
+            ));
+        }
+
+        $sort = $options['sort'] ?? ($this->sort ?: [['_score' => ['order' => 'desc']]]);
+        $sort = is_array($sort) && array_is_list($sort) ? $sort : [$sort];
+        $sort[] = ['_shard_doc' => ['order' => 'asc']];
+
+        $body = array_merge($options, [
+            'size' => $size,
+            'track_total_hits' => false,
+            'sort' => $sort,
+            'pit' => ['id' => $pointInTimeId, 'keep_alive' => $keepAlive],
+        ]);
+
+        if ($this->query) {
+            $body['query'] = $this->query;
+        }
+
+        if ($searchAfter !== null) {
+            $body['search_after'] = $searchAfter;
+        }
+
+        return ['body' => $body];
+    }
+
+    /**
      * Convert object to array.
      *
      * @return array

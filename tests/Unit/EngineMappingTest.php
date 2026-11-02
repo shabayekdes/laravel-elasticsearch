@@ -10,6 +10,7 @@ use Shabayek\Elastic\Tests\EngineTestCase;
 use Shabayek\Elastic\Tests\Fixtures\Document;
 use Shabayek\Elastic\Tests\Fixtures\Post;
 use Shabayek\Elastic\Tests\Fixtures\Product;
+use Shabayek\Elastic\Tests\Support\FakePointInTimeServer;
 
 class EngineMappingTest extends EngineTestCase
 {
@@ -156,7 +157,8 @@ class EngineMappingTest extends EngineTestCase
     public function test_get_and_cursor_return_ordered_models_through_scout()
     {
         $this->seedPosts(3);
-        $this->http->push($this->searchResponse([2, 3, 1]))->push($this->searchResponse([3, 1]));
+        $this->http->push($this->searchResponse([2, 3, 1]));
+        $this->http->respondUsing(new FakePointInTimeServer([['id' => 3], ['id' => 1]]));
 
         $this->assertSame([2, 3, 1], Post::search('post')->get()->pluck('id')->all());
 
@@ -167,12 +169,14 @@ class EngineMappingTest extends EngineTestCase
 
     public function test_cursor_returns_an_empty_lazy_collection_when_nothing_matches()
     {
-        $this->http->push($this->searchResponse([]));
+        $this->http->respondUsing($server = new FakePointInTimeServer());
 
         $cursor = Post::search('nothing')->cursor();
 
         $this->assertInstanceOf(LazyCollection::class, $cursor);
         $this->assertCount(0, $cursor);
+        $this->assertCount(1, $server->searches);
+        $this->assertSame(['pit-1'], $server->closed);
     }
 
     public function test_get_applies_the_after_raw_search_callback()

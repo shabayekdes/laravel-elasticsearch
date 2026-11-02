@@ -5,6 +5,8 @@ namespace Shabayek\Elastic;
 use Elastic\Elasticsearch\Client;
 use Elastic\Elasticsearch\Exception\ClientResponseException;
 use Elastic\Elasticsearch\Response\Elasticsearch;
+use Illuminate\Container\Container;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Arr;
 use Illuminate\Support\LazyCollection;
@@ -13,6 +15,8 @@ use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
 use Shabayek\Elastic\Builders\SearchBuilder;
 use Shabayek\Elastic\Exceptions\BulkOperationException;
+use Shabayek\Elastic\Exceptions\IncompleteSearchResultsException;
+use Throwable;
 
 class ElasticSearchEngine extends Engine
 {
@@ -45,17 +49,39 @@ class ElasticSearchEngine extends Engine
     protected $refresh;
 
     /**
+     * The number of hits fetched per page by cursor().
+     *
+     * @var int
+     */
+    protected $cursorBatchSize;
+
+    /**
+     * How long Elasticsearch keeps a cursor's point in time between pages.
+     *
+     * @var string
+     */
+    protected $cursorKeepAlive;
+
+    /**
      * Create a new engine instance.
      *
      * @param  \Elastic\Elasticsearch\Client  $client
      * @param  bool  $softDelete
      * @param  int  $chunkSize
      * @param  bool|string  $refresh
+     * @param  int  $cursorBatchSize
+     * @param  string  $cursorKeepAlive
      *
      * @throws \InvalidArgumentException
      */
-    public function __construct(Client $client, bool $softDelete = false, int $chunkSize = 500, bool|string $refresh = false)
-    {
+    public function __construct(
+        Client $client,
+        bool $softDelete = false,
+        int $chunkSize = 500,
+        bool|string $refresh = false,
+        int $cursorBatchSize = 1000,
+        string $cursorKeepAlive = '1m'
+    ) {
         if ($chunkSize < 1) {
             throw new InvalidArgumentException('The Elasticsearch bulk chunk size must be at least 1.');
         }
@@ -64,10 +90,20 @@ class ElasticSearchEngine extends Engine
             throw new InvalidArgumentException('The Elasticsearch refresh option must be true, false or "wait_for".');
         }
 
+        if ($cursorBatchSize < 1) {
+            throw new InvalidArgumentException('The Elasticsearch cursor batch size must be at least 1.');
+        }
+
+        if ($cursorKeepAlive === '') {
+            throw new InvalidArgumentException('The Elasticsearch cursor keep alive must not be empty.');
+        }
+
         $this->client = $client;
         $this->softDelete = $softDelete;
         $this->chunkSize = $chunkSize;
         $this->refresh = $refresh;
+        $this->cursorBatchSize = $cursorBatchSize;
+        $this->cursorKeepAlive = $cursorKeepAlive;
     }
 
     /**
@@ -267,6 +303,93 @@ class ElasticSearchEngine extends Engine
             ->map(fn ($model) => $this->withHitMetadata($model, $hits[$positions[$model->getScoutKey()]]))
             ->sortBy(fn ($model) => $positions[$model->getScoutKey()])
             ->values();
+    }
+
+    /**
+     * Get a lazy collection for the given query mapped onto models.
+     *
+     * Hits are read page by page from a point in time (PIT) with search_after,
+     * so large result sets (beyond index.max_result_window) are streamed in
+     * relevance order (or the orderBy() order) without loading them all. Each
+     * page is mapped to models separately. The PIT is closed when iteration
+     * ends, fails or is stopped early.
+     *
+     * @param  \Laravel\Scout\Builder  $builder
+     * @return \Illuminate\Support\LazyCollection
+     */
+    public function cursor(Builder $builder)
+    {
+        $searchBuilder = new SearchBuilder($builder);
+
+        return LazyCollection::make(function () use ($builder, $searchBuilder) {
+            $remaining = $builder->limit === null ? null : (int) $builder->limit;
+
+            if ($remaining !== null && $remaining <= 0) {
+                return;
+            }
+
+            $pointInTimeId = $this->client->openPointInTime([
+                'index' => $searchBuilder->index,
+                'keep_alive' => $this->cursorKeepAlive,
+            ])->asArray()['id'];
+
+            try {
+                $searchAfter = null;
+
+                do {
+                    $size = $remaining === null ? $this->cursorBatchSize : min($this->cursorBatchSize, $remaining);
+
+                    $results = $this->performSearch(
+                        $builder,
+                        $searchBuilder->toPointInTimeArray($pointInTimeId, $this->cursorKeepAlive, $size, $searchAfter)
+                    );
+
+                    $pointInTimeId = $results['pit_id'] ?? $pointInTimeId;
+
+                    if (! empty($results['timed_out']) || ($results['_shards']['failed'] ?? 0) > 0) {
+                        throw IncompleteSearchResultsException::fromResults($results);
+                    }
+
+                    $hits = $this->hits($results);
+
+                    foreach ($this->lazyMap($builder, $builder->applyAfterRawSearchCallback($results), $builder->model) as $model) {
+                        yield $model;
+                    }
+
+                    if ($remaining !== null) {
+                        $remaining -= count($hits);
+                    }
+
+                    $searchAfter = $hits === [] ? null : (end($hits)['sort'] ?? null);
+
+                    if ($hits !== [] && $searchAfter === null && count($hits) === $size) {
+                        throw new IncompleteSearchResultsException('Elasticsearch returned hits without sort values; the cursor cannot continue.');
+                    }
+                } while (count($hits) === $size && ($remaining === null || $remaining > 0));
+            } finally {
+                $this->closePointInTime($pointInTimeId);
+            }
+        });
+    }
+
+    /**
+     * Close a point in time, reporting (not throwing) failures: an unclosed
+     * point in time expires after its keep alive.
+     *
+     * @param  string  $id
+     * @return void
+     */
+    protected function closePointInTime(string $id): void
+    {
+        try {
+            $this->client->closePointInTime(['body' => ['id' => $id]]);
+        } catch (Throwable $e) {
+            $container = Container::getInstance();
+
+            if ($container->bound(ExceptionHandler::class)) {
+                $container->make(ExceptionHandler::class)->report($e);
+            }
+        }
     }
 
     /**

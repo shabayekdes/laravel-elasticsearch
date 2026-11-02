@@ -26,6 +26,11 @@ class FakeHttpClient implements ClientInterface
     protected array $responses = [];
 
     /**
+     * @var callable|null
+     */
+    protected $responder = null;
+
+    /**
      * Queue a JSON response.
      */
     public function push(array $body, int $status = 200): self
@@ -47,11 +52,23 @@ class FakeHttpClient implements ClientInterface
         return $this;
     }
 
+    /**
+     * Answer requests with the callback once the queued responses are used up.
+     *
+     * @param  callable(\Psr\Http\Message\RequestInterface): \Psr\Http\Message\ResponseInterface  $responder
+     */
+    public function respondUsing(callable $responder): self
+    {
+        $this->responder = $responder;
+
+        return $this;
+    }
+
     public function sendRequest(RequestInterface $request): ResponseInterface
     {
         $this->requests[] = $request;
 
-        $response = array_shift($this->responses) ?? static::response([]);
+        $response = array_shift($this->responses) ?? $this->responder ?? static::response([]);
 
         return is_callable($response) ? $response($request) : $response;
     }

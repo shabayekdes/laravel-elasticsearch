@@ -130,4 +130,20 @@ return [
         'chunk_size' => (int) env('ELASTIC_BULK_CHUNK_SIZE', 500),
         'refresh' => env('ELASTIC_REFRESH', false),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cursor
+    |--------------------------------------------------------------------------
+    |
+    | Model::search()->cursor() pages through the results with a point in
+    | time and search_after. "batch_size" is the number of hits fetched per
+    | page and "keep_alive" how long Elasticsearch keeps the point in time
+    | open between two pages.
+    |
+    */
+    'cursor' => [
+        'batch_size' => (int) env('ELASTIC_CURSOR_BATCH_SIZE', 1000),
+        'keep_alive' => env('ELASTIC_CURSOR_KEEP_ALIVE', '1m'),
+    ],
 ];
