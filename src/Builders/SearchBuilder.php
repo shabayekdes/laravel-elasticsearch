@@ -58,6 +58,13 @@ class SearchBuilder
     private const RANGE_OPERATORS = ['>' => 'gt', '>=' => 'gte', '<' => 'lt', '<=' => 'lte'];
 
     /**
+     * The sort clauses.
+     *
+     * @var array
+     */
+    private $sort = [];
+
+    /**
      * Scoring (full-text) clauses.
      *
      * @var array
@@ -98,7 +105,15 @@ class SearchBuilder
      */
     private function buildRequest($builder, $model)
     {
-        $this->index = $model->searchableAs();
+        $this->index = $builder->index ?: $model->searchableAs();
+
+        if ($builder->limit !== null) {
+            $this->size = (int) $builder->limit;
+        }
+
+        foreach ($builder->orders as $order) {
+            $this->sort[] = [$order['column'] => ['order' => $order['direction']]];
+        }
 
         if ($builder->query) {
             $this->multiMatch($model->searchableFields(), $builder->query);
@@ -370,6 +385,10 @@ class SearchBuilder
         ];
         if ($this->query) {
             $request['body']['query'] = $this->query;
+        }
+
+        if ($this->sort) {
+            $request['body']['sort'] = $this->sort;
         }
 
         return $request;

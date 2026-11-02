@@ -203,6 +203,65 @@ class SearchBuilderTest extends EngineTestCase
         $this->request('', ['whereNotIns' => ['tag' => [null]]]);
     }
 
+    public function test_order_by_sorts_in_the_given_order()
+    {
+        $this->http->push($this->searchResponse([]));
+
+        Post::search('lamp')->orderBy('published_at', 'desc')->orderBy('title')->orderBy('views', 'ASC')->raw();
+
+        $this->assertSame([
+            ['published_at' => ['order' => 'desc']],
+            ['title' => ['order' => 'asc']],
+            ['views' => ['order' => 'asc']],
+        ], $this->requestBody($this->http->lastRequest())['sort']);
+    }
+
+    public function test_results_are_sorted_by_relevance_without_order_by()
+    {
+        $this->assertArrayNotHasKey('sort', $this->request('lamp')['body']);
+    }
+
+    public function test_take_limits_the_number_of_hits()
+    {
+        $this->http->push($this->searchResponse([]))->push($this->searchResponse([]));
+
+        Post::search('lamp')->take(25)->raw();
+        $this->assertSame(25, $this->requestBody($this->http->lastRequest())['size']);
+
+        Post::search('lamp')->raw();
+        $this->assertSame(5000, $this->requestBody($this->http->lastRequest())['size']);
+    }
+
+    public function test_take_limits_get_and_keys()
+    {
+        $this->http->push($this->searchResponse([]))->push($this->searchResponse([]));
+
+        Post::search('lamp')->take(3)->get();
+        Post::search('lamp')->take(4)->keys();
+
+        $this->assertSame([3, 4], array_map(fn ($request) => $this->requestBody($request)['size'], $this->http->requests));
+    }
+
+    public function test_paginate_uses_the_page_size_like_other_scout_engines()
+    {
+        $this->http->push($this->searchResponse([]));
+
+        Post::search('lamp')->take(3)->paginateRaw(20, 'page', 2);
+
+        $body = $this->requestBody($this->http->lastRequest());
+        $this->assertSame(20, $body['from']);
+        $this->assertSame(20, $body['size']);
+    }
+
+    public function test_within_searches_a_custom_index()
+    {
+        $this->http->push($this->searchResponse([]));
+
+        Post::search('lamp')->within('posts_archive')->raw();
+
+        $this->assertSame(['POST /posts_archive/_search'], $this->sentRequests());
+    }
+
     public function test_constraints_reach_elasticsearch_through_the_installed_scout_version()
     {
         $this->http->push($this->searchResponse([]));
