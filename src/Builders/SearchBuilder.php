@@ -3,6 +3,7 @@
 namespace Shabayek\Elastic\Builders;
 
 use Illuminate\Database\Eloquent\Model;
+use InvalidArgumentException;
 use Laravel\Scout\Builder;
 
 class SearchBuilder
@@ -68,10 +69,8 @@ class SearchBuilder
             $this->multiMatch($model->searchableFields(), $builder->query);
         }
 
-        if ($builder->wheres) {
-            foreach ($builder->wheres as $key => $value) {
-                $this->append('term', [$key => $value]);
-            }
+        foreach ($this->equalityWheres($builder->wheres) as [$field, $value]) {
+            $this->append('term', [$field => $value]);
         }
 
         if ($builder->whereIns) {
@@ -79,6 +78,40 @@ class SearchBuilder
                 $this->append('terms', [$key => $value]);
             }
         }
+    }
+
+    /**
+     * Normalize the "where" constraints to [field, value] pairs.
+     *
+     * Scout 10 stores them as "field => value", Scout 11 as a list of
+     * ['field' => ..., 'operator' => ..., 'value' => ...] rows.
+     *
+     * @param  array  $wheres
+     * @return array
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function equalityWheres(array $wheres): array
+    {
+        $pairs = [];
+
+        foreach ($wheres as $key => $where) {
+            if (! is_int($key) || ! is_array($where) || ! array_key_exists('field', $where) || ! array_key_exists('operator', $where)) {
+                $pairs[] = [$key, $where];
+
+                continue;
+            }
+
+            if ($where['operator'] !== '=') {
+                throw new InvalidArgumentException(
+                    "The [{$where['operator']}] operator is not supported in where clauses; only [=] is supported."
+                );
+            }
+
+            $pairs[] = [$where['field'], $where['value'] ?? null];
+        }
+
+        return $pairs;
     }
 
     /**
