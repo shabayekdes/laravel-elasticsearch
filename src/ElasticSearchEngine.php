@@ -129,7 +129,9 @@ class ElasticSearchEngine extends Engine
     /**
      * Pluck and return the primary keys of the given results using the given key name.
      *
-     * The value is read from the document source, falling back to the document id.
+     * Scout passes the model's Scout key name. Documents are stored with their
+     * Scout key as the document id, so the id is returned rather than a source
+     * field, which toSearchableArray() may have changed or left out.
      *
      * @param  mixed  $results
      * @param  string  $key
@@ -137,9 +139,7 @@ class ElasticSearchEngine extends Engine
      */
     public function mapIdsFrom($results, $key)
     {
-        return collect($this->hits($results))
-            ->map(fn ($hit) => $hit['_source'][$key] ?? $hit['_id'])
-            ->values();
+        return $this->mapIds($results);
     }
 
     /**
@@ -150,7 +150,7 @@ class ElasticSearchEngine extends Engine
      */
     public function keys(Builder $builder)
     {
-        $keys = $this->mapIds($this->search($builder));
+        $keys = $this->mapIdsFrom($this->search($builder), $builder->model->getScoutKeyName());
 
         return in_array($builder->model->getScoutKeyType(), ['int', 'integer'])
             ? $keys->map(fn ($key) => (int) $key)

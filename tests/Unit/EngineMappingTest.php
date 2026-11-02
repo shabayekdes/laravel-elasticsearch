@@ -200,12 +200,68 @@ class EngineMappingTest extends EngineTestCase
         $this->assertSame([], $this->engine()->mapIds(null)->all());
     }
 
-    public function test_map_ids_from_reads_the_key_from_the_source_and_falls_back_to_the_id()
+    public function test_map_ids_from_returns_the_document_id_when_the_source_field_differs()
     {
-        $results = $this->searchResponse([1, 2], null, [1 => ['uuid' => 'aaa'], 2 => ['title' => 'no uuid']]);
+        // toSearchableArray() may transform the key field; the document id is the Scout key.
+        $results = $this->searchResponse([7, 8], null, [7 => ['id' => 'post-7'], 8 => ['id' => 99]]);
 
-        $this->assertSame(['aaa', '2'], $this->engine()->mapIdsFrom($results, 'uuid')->all());
-        $this->assertSame([], $this->engine()->mapIdsFrom($this->searchResponse([]), 'uuid')->all());
+        $this->assertSame(['7', '8'], $this->engine()->mapIdsFrom($results, 'id')->all());
+    }
+
+    public function test_map_ids_from_returns_the_document_id_when_the_source_field_is_missing()
+    {
+        $results = $this->searchResponse([3, 4], null, [3 => ['title' => 'no id'], 4 => []]);
+
+        $this->assertSame(['3', '4'], $this->engine()->mapIdsFrom($results, 'id')->all());
+        $this->assertSame([], $this->engine()->mapIdsFrom($this->searchResponse([]), 'id')->all());
+        $this->assertSame([], $this->engine()->mapIdsFrom(null, 'id')->all());
+    }
+
+    public function test_map_ids_from_returns_overridden_scout_keys()
+    {
+        $this->withoutSearchSync(function () {
+            Document::create(['slug' => 'alpha', 'title' => 'a']);
+            Document::create(['slug' => 'beta', 'title' => 'b']);
+            Document::create(['slug' => 'gamma', 'title' => 'g']);
+        });
+        // Document sources do not contain the "slug" Scout key field.
+        $results = $this->searchResponse(['gamma', 'alpha', 'beta'], null, ['gamma' => ['title' => 'g']]);
+        $this->http->push($results);
+
+        $paginator = Document::search('doc')->query(fn ($query) => $query->where('slug', '!=', 'beta'))->paginate(10);
+
+        $this->assertSame(['gamma', 'alpha', 'beta'], $this->engine()->mapIdsFrom($results, 'slug')->all());
+        $this->assertSame(2, $paginator->total());
+        $this->assertSame(['gamma', 'alpha'], $paginator->getCollection()->pluck('slug')->all());
+    }
+
+    public function test_map_ids_from_and_keys_return_the_same_identities()
+    {
+        $posts = $this->searchResponse([5, 2], null, [5 => ['id' => 'post-5'], 2 => []]);
+        $products = $this->searchResponse(['SKU-2', 'SKU-1']);
+        $documents = $this->searchResponse(['beta', 'alpha']);
+        $this->http->push($posts)->push($products)->push($documents);
+
+        $this->assertSame([5, 2], Post::search('post')->keys()->all());
+        $this->assertSame(['5', '2'], $this->engine()->mapIdsFrom($posts, 'id')->all());
+        $this->assertSame(['SKU-2', 'SKU-1'], Product::search('lamp')->keys()->all());
+        $this->assertSame(['SKU-2', 'SKU-1'], $this->engine()->mapIdsFrom($products, 'sku')->all());
+        $this->assertSame(['beta', 'alpha'], Document::search('doc')->keys()->all());
+        $this->assertSame(['beta', 'alpha'], $this->engine()->mapIdsFrom($documents, 'slug')->all());
+    }
+
+    public function test_paginator_total_with_a_query_callback_uses_document_identities()
+    {
+        // Scout counts query-callback results by passing mapIdsFrom() ids to the database.
+        $this->seedPosts(4);
+        $this->http->push($this->searchResponse([1, 2, 3, 4], null, [
+            1 => ['id' => 'post-1'], 2 => ['id' => 'post-2'], 3 => ['id' => 'post-3'], 4 => ['id' => 'post-4'],
+        ]));
+
+        $paginator = Post::search('post')->query(fn ($query) => $query->where('id', '!=', 3))->paginate(10);
+
+        $this->assertSame(3, $paginator->total());
+        $this->assertSame([1, 2, 4], $paginator->getCollection()->pluck('id')->all());
     }
 
     public function test_keys_are_cast_to_the_scout_key_type()
