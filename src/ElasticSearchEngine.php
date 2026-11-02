@@ -84,19 +84,28 @@ class ElasticSearchEngine extends Engine
         string $cursorKeepAlive = '1m'
     ) {
         if ($chunkSize < 1) {
-            throw new InvalidArgumentException('The Elasticsearch bulk chunk size must be at least 1.');
+            throw new InvalidArgumentException(sprintf(
+                'The Elasticsearch bulk chunk size must be at least 1, %d given. Check the "elasticsearch.indexing.chunk_size" option (ELASTIC_BULK_CHUNK_SIZE).',
+                $chunkSize
+            ));
         }
 
         if (! is_bool($refresh) && $refresh !== 'wait_for') {
-            throw new InvalidArgumentException('The Elasticsearch refresh option must be true, false or "wait_for".');
+            throw new InvalidArgumentException(sprintf(
+                'The Elasticsearch refresh option must be true, false or "wait_for", %s given. Check the "elasticsearch.indexing.refresh" option (ELASTIC_REFRESH).',
+                var_export($refresh, true)
+            ));
         }
 
         if ($cursorBatchSize < 1) {
-            throw new InvalidArgumentException('The Elasticsearch cursor batch size must be at least 1.');
+            throw new InvalidArgumentException(sprintf(
+                'The Elasticsearch cursor batch size must be at least 1, %d given. Check the "elasticsearch.cursor.batch_size" option (ELASTIC_CURSOR_BATCH_SIZE).',
+                $cursorBatchSize
+            ));
         }
 
         if ($cursorKeepAlive === '') {
-            throw new InvalidArgumentException('The Elasticsearch cursor keep alive must not be empty.');
+            throw new InvalidArgumentException('The Elasticsearch cursor keep alive must not be empty. Check the "elasticsearch.cursor.keep_alive" option (ELASTIC_CURSOR_KEEP_ALIVE).');
         }
 
         $this->client = $client;

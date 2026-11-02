@@ -4,7 +4,9 @@ namespace Shabayek\Elastic\Tests\Unit;
 
 use Elastic\Elasticsearch\Client;
 use Illuminate\Support\ServiceProvider;
+use InvalidArgumentException;
 use Laravel\Scout\EngineManager;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Shabayek\Elastic\Connection\ClientFactory;
 use Shabayek\Elastic\ElasticSearchEngine;
 use Shabayek\Elastic\Providers\ElasticServiceProvider;
@@ -115,5 +117,39 @@ class ElasticServiceProviderTest extends TestCase
         } finally {
             @unlink($target);
         }
+    }
+
+    public static function invalidEngineSettings(): array
+    {
+        return [
+            'chunk size' => [
+                'elasticsearch.indexing.chunk_size', 0,
+                'The Elasticsearch bulk chunk size must be at least 1, 0 given. Check the "elasticsearch.indexing.chunk_size" option (ELASTIC_BULK_CHUNK_SIZE).',
+            ],
+            'refresh' => [
+                'elasticsearch.indexing.refresh', '1',
+                'The Elasticsearch refresh option must be true, false or "wait_for", \'1\' given. Check the "elasticsearch.indexing.refresh" option (ELASTIC_REFRESH).',
+            ],
+            'cursor batch size' => [
+                'elasticsearch.cursor.batch_size', -5,
+                'The Elasticsearch cursor batch size must be at least 1, -5 given. Check the "elasticsearch.cursor.batch_size" option (ELASTIC_CURSOR_BATCH_SIZE).',
+            ],
+            'cursor keep alive' => [
+                'elasticsearch.cursor.keep_alive', '',
+                'The Elasticsearch cursor keep alive must not be empty. Check the "elasticsearch.cursor.keep_alive" option (ELASTIC_CURSOR_KEEP_ALIVE).',
+            ],
+        ];
+    }
+
+    #[DataProvider('invalidEngineSettings')]
+    public function test_invalid_engine_settings_name_the_option_and_environment_variable(string $key, $value, string $message)
+    {
+        $this->app['config']->set($key, $value);
+        $this->app->make(EngineManager::class)->forgetEngines();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage($message);
+
+        $this->app->make(EngineManager::class)->engine('elasticsearch');
     }
 }

@@ -93,6 +93,7 @@ class EngineBulkTest extends EngineTestCase
         $this->useChunkSize(0);
 
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('The Elasticsearch bulk chunk size must be at least 1, 0 given.');
 
         $this->engine();
     }
@@ -308,7 +309,7 @@ class EngineBulkTest extends EngineTestCase
         $this->useRefresh('sometimes');
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('true, false or "wait_for"');
+        $this->expectExceptionMessage('The Elasticsearch refresh option must be true, false or "wait_for", \'sometimes\' given.');
 
         $this->engine();
     }
