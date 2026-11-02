@@ -114,6 +114,23 @@ class SearchOptionsTest extends EngineTestCase
         $this->assertSame([1], $paginator->getCollection()->pluck('id')->all());
     }
 
+    public function test_a_regular_search_callback_may_change_sort_size_and_from()
+    {
+        $this->http->push($this->searchResponse([]));
+
+        Post::search('lamp', function (Client $client, $query, array $params) {
+            $params['body'] = array_merge($params['body'], ['sort' => [['views' => 'desc']], 'size' => 3, 'from' => 6]);
+
+            return $client->search($params);
+        })->raw();
+
+        $body = $this->requestBody($this->http->lastRequest());
+
+        $this->assertSame([['views' => 'desc']], $body['sort']);
+        $this->assertSame(3, $body['size']);
+        $this->assertSame(6, $body['from']);
+    }
+
     public function test_hybrid_search_is_not_supported()
     {
         if (! method_exists(Builder::class, 'hybrid')) {

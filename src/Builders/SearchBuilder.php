@@ -59,6 +59,11 @@ class SearchBuilder
     private const RESERVED_OPTIONS = ['from', 'size', 'query'];
 
     /**
+     * Request body keys a cursor search callback must send unchanged.
+     */
+    public const CURSOR_MANAGED_PARAMETERS = ['pit', 'search_after', 'sort', 'size', 'from'];
+
+    /**
      * The range query parameter of each comparison operator.
      */
     private const RANGE_OPERATORS = ['>' => 'gt', '>=' => 'gte', '<' => 'lt', '<=' => 'lte'];

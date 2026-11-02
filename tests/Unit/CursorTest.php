@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\LazyCollection;
 use InvalidArgumentException;
+use LogicException;
 use Laravel\Scout\EngineManager;
 use RuntimeException;
 use Shabayek\Elastic\Exceptions\IncompleteSearchResultsException;
@@ -452,6 +453,151 @@ class CursorTest extends EngineTestCase
         $this->assertArrayNotHasKey('index', $calls[0]);
         $this->assertSame('pit-0', $calls[0]['body']['pit']['id']);
         $this->assertCount(2, $server->searches);
+    }
+
+    /**
+     * Iterate a 3-page cursor whose search callback applies $modify to the
+     * request of page $page, and return the exception, the number of models
+     * yielded and the server.
+     */
+    protected function cursorWithModifiedRequest(int $page, callable $modify): array
+    {
+        $this->seedPosts(6);
+        $server = $this->server($this->rankedDocuments(range(1, 6)));
+        $this->configure('batch_size', 2);
+        $calls = 0;
+        $seen = 0;
+        $exception = null;
+
+        $cursor = Post::search('post', function (Client $client, $query, array $params) use ($page, $modify, &$calls) {
+            return $client->search(++$calls === $page ? $modify($params) : $params);
+        })->cursor();
+
+        try {
+            foreach ($cursor as $post) {
+                $seen++;
+            }
+        } catch (LogicException $e) {
+            $exception = $e;
+        }
+
+        return [$exception, $seen, $server];
+    }
+
+    /**
+     * Assert the cursor stopped with a LogicException naming the changed
+     * parameters, without yielding page 2, and closed the point in time.
+     */
+    protected function assertManagedParametersRejected(string $parameters, callable $modify): void
+    {
+        [$exception, $seen, $server] = $this->cursorWithModifiedRequest(2, $modify);
+
+        $this->assertInstanceOf(LogicException::class, $exception);
+        $this->assertStringContainsString("cursor-managed [{$parameters}] parameter(s)", $exception->getMessage());
+        $this->assertSame(2, $seen);
+        $this->assertSame(['pit-1'], $server->closed);
+    }
+
+    public function test_a_cursor_search_callback_cannot_change_the_point_in_time()
+    {
+        $this->assertManagedParametersRejected('pit', function ($params) {
+            $params['body']['pit']['keep_alive'] = '1h';
+
+            return $params;
+        });
+    }
+
+    public function test_a_cursor_search_callback_cannot_change_search_after()
+    {
+        $this->assertManagedParametersRejected('search_after', function ($params) {
+            $params['body']['search_after'] = [1.0, 0];
+
+            return $params;
+        });
+    }
+
+    public function test_a_cursor_search_callback_cannot_change_the_sort()
+    {
+        $this->assertManagedParametersRejected('sort', function ($params) {
+            $params['body']['sort'] = [['_shard_doc' => ['order' => 'asc']]];
+
+            return $params;
+        });
+    }
+
+    public function test_a_cursor_search_callback_cannot_change_the_size()
+    {
+        $this->assertManagedParametersRejected('size', function ($params) {
+            $params['body']['size'] = 1;
+
+            return $params;
+        });
+    }
+
+    public function test_a_cursor_search_callback_cannot_add_from()
+    {
+        $this->assertManagedParametersRejected('from', function ($params) {
+            $params['body']['from'] = 1;
+
+            return $params;
+        });
+    }
+
+    public function test_a_cursor_search_callback_cannot_remove_managed_parameters()
+    {
+        $this->assertManagedParametersRejected('search_after, sort', function ($params) {
+            unset($params['body']['search_after'], $params['body']['sort']);
+
+            return $params;
+        });
+    }
+
+    public function test_a_cursor_search_callback_cannot_override_managed_parameters_in_the_query_string()
+    {
+        [$exception, $seen, $server] = $this->cursorWithModifiedRequest(1, function ($params) {
+            $params['size'] = 1;
+
+            return $params;
+        });
+
+        $this->assertStringContainsString('cursor-managed [size] parameter(s)', $exception->getMessage());
+        $this->assertSame(0, $seen);
+        $this->assertSame(['pit-0'], $server->closed);
+    }
+
+    public function test_a_cursor_search_callback_must_send_its_search_through_the_client()
+    {
+        $this->seedPosts(1);
+        $server = $this->server([['id' => 1]]);
+
+        try {
+            Post::search('post', fn () => $this->searchResponse([1]))->cursor()->all();
+            $this->fail('Expected a LogicException.');
+        } catch (LogicException $e) {
+            $this->assertSame('A cursor search callback must send its search through the given client.', $e->getMessage());
+        }
+
+        $this->assertSame([], $server->searches);
+        $this->assertSame(['pit-0'], $server->closed);
+    }
+
+    public function test_a_cursor_search_callback_can_change_the_query_and_other_options()
+    {
+        $this->seedPosts(3);
+        $server = $this->server([['id' => 3], ['id' => 1], ['id' => 2]]);
+        $this->configure('batch_size', 2);
+
+        $ids = Post::search('post', function (Client $client, $query, array $params) {
+            $params['body']['query'] = ['match' => ['title' => $query]];
+            $params['body']['highlight'] = ['fields' => ['title' => new \stdClass()]];
+
+            return $client->search($params);
+        })->cursor()->pluck('id')->all();
+
+        $this->assertSame([3, 1, 2], $ids);
+        $this->assertSame(['match' => ['title' => 'post']], $server->searches[1]['query']);
+        $this->assertSame(['fields' => ['title' => []]], $server->searches[1]['highlight']);
+        $this->assertSame(['pit-2'], $server->closed);
     }
 
     public function test_the_after_raw_search_callback_is_applied_to_each_page()

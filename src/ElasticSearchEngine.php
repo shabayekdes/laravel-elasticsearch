@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Arr;
 use Illuminate\Support\LazyCollection;
 use InvalidArgumentException;
+use LogicException;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
 use Shabayek\Elastic\Builders\SearchBuilder;
@@ -211,6 +212,66 @@ class ElasticSearchEngine extends Engine
     }
 
     /**
+     * Run one page of a cursor search, making sure a search callback did not
+     * change the parameters that drive the cursor.
+     *
+     * A cursor search callback may change the query and other request options,
+     * but must send its search through the given client, as the last request
+     * of the callback, to "_search" without an index and with the pit,
+     * search_after, sort, size and from body keys unchanged (none of them in
+     * the query string). Otherwise the page is discarded and a LogicException
+     * is thrown, before any of its hits are used.
+     *
+     * @param  \Laravel\Scout\Builder  $builder
+     * @param  array  $params
+     * @return mixed
+     *
+     * @throws \LogicException
+     */
+    protected function performCursorSearch(Builder $builder, array $params)
+    {
+        if (! $builder->callback) {
+            return $this->performSearch($builder, $params);
+        }
+
+        $transport = $this->client->getTransport();
+        $previous = $transport->getLastRequest();
+
+        $results = $this->performSearch($builder, $params);
+
+        $request = $transport->getLastRequest();
+
+        if ($request === null || $request === $previous) {
+            throw new LogicException('A cursor search callback must send its search through the given client.');
+        }
+
+        parse_str($request->getUri()->getQuery(), $query);
+        $sent = json_decode((string) $request->getBody(), true) ?: [];
+        $expected = json_decode(json_encode($params['body']), true);
+        $changed = [];
+
+        foreach (SearchBuilder::CURSOR_MANAGED_PARAMETERS as $key) {
+            if (array_key_exists($key, $query) || ($sent[$key] ?? null) !== ($expected[$key] ?? null)) {
+                $changed[] = $key;
+            }
+        }
+
+        if ($request->getMethod() !== 'POST' || $request->getUri()->getPath() !== '/_search') {
+            $changed[] = 'index';
+        }
+
+        if ($changed) {
+            throw new LogicException(sprintf(
+                'The search callback changed the cursor-managed [%s] parameter(s). A cursor search callback may change '.
+                'the query and other options, but must send pit, search_after, sort, size and from unchanged.',
+                implode(', ', $changed)
+            ));
+        }
+
+        return $results;
+    }
+
+    /**
      * Pluck and return the primary keys of the given results.
      *
      * @param  mixed  $results
@@ -339,7 +400,7 @@ class ElasticSearchEngine extends Engine
                 do {
                     $size = $remaining === null ? $this->cursorBatchSize : min($this->cursorBatchSize, $remaining);
 
-                    $results = $this->performSearch(
+                    $results = $this->performCursorSearch(
                         $builder,
                         $searchBuilder->toPointInTimeArray($pointInTimeId, $this->cursorKeepAlive, $size, $searchAfter)
                     );
