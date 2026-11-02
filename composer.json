@@ -18,6 +18,10 @@
             "role": "Developer"
         }
     ],
+    "support": {
+        "issues": "https://github.com/shabayekdes/laravel-elasticsearch/issues",
+        "source": "https://github.com/shabayekdes/laravel-elasticsearch"
+    },
     "require": {
         "php": "^8.2",
         "elasticsearch/elasticsearch": "^8.16 || ^9.0",
