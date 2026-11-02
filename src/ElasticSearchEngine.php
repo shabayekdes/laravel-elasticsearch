@@ -5,6 +5,7 @@ namespace Shabayek\Elastic;
 use Elastic\Elasticsearch\Client;
 use Elastic\Elasticsearch\Exception\ClientResponseException;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Arr;
 use Illuminate\Support\LazyCollection;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
@@ -251,22 +252,43 @@ class ElasticSearchEngine extends Engine
     /**
      * Create a search index.
      *
+     * Supported options are "settings", "mappings" and "aliases". Without
+     * "settings", the package's default analysis settings are used. When the
+     * index already exists it is left untouched.
+     *
      * @param  string  $name
      * @param  array  $options
-     * @return mixed
+     * @return array
      */
     public function createIndex($name, array $options = [])
     {
+        if ($this->client->indices()->exists(['index' => $name])->asBool()) {
+            return $this->client->indices()->get(['index' => $name])->asArray();
+        }
+
+        $body = Arr::only($options, ['settings', 'mappings', 'aliases']);
+        $body['settings'] ??= $this->defaultIndexSettings();
+
+        try {
+            return $this->client->indices()->create(['index' => $name, 'body' => $body])->asArray();
+        } catch (ClientResponseException $e) {
+            if ($this->errorType($e) !== 'resource_already_exists_exception') {
+                throw $e;
+            }
+
+            return $this->client->indices()->get(['index' => $name])->asArray();
+        }
     }
 
     /**
      * Delete a search index.
      *
      * @param  string  $name
-     * @return mixed
+     * @return array
      */
     public function deleteIndex($name)
     {
+        return $this->client->indices()->delete(['index' => $name])->asArray();
     }
 
     /**
@@ -322,4 +344,35 @@ class ElasticSearchEngine extends Engine
         $body = json_decode((string) $e->getResponse()->getBody(), true);
 
         return $body['error']['type'] ?? null;
-    }}
+    }
+
+    /**
+     * The analysis settings used when an index is created without settings.
+     *
+     * @return array
+     */
+    protected function defaultIndexSettings(): array
+    {
+        return [
+            'index' => [
+                'analysis' => [
+                    'analyzer' => [
+                        'default' => [
+                            'type' => 'custom',
+                            'tokenizer' => 'standard',
+                            'char_filter' => ['html_strip'],
+                            'filter' => ['lowercase', 'words_splitter'],
+                        ],
+                    ],
+                    'filter' => [
+                        'words_splitter' => [
+                            'type' => 'word_delimiter',
+                            'catenate_all' => true,
+                            'preserve_original' => false,
+                        ],
+                    ],
+                ],
+            ],
+        ];
+    }
+}
