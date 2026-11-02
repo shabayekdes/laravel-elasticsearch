@@ -112,4 +112,17 @@ return [
     'ssl_verification' => (bool) env('ELASTIC_SSL_VERIFICATION', true),
 
     'ca_bundle' => env('ELASTIC_CA_BUNDLE'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Indexing
+    |--------------------------------------------------------------------------
+    |
+    | Models are indexed and deleted through the bulk API. "chunk_size" is the
+    | maximum number of documents sent in one bulk request.
+    |
+    */
+    'indexing' => [
+        'chunk_size' => (int) env('ELASTIC_BULK_CHUNK_SIZE', 500),
+    ],
 ];

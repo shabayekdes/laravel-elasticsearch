@@ -23,6 +23,7 @@ class ElasticServiceProviderTest extends TestCase
         $this->assertNull($config['password']);
         $this->assertNull($config['api_key']);
         $this->assertTrue($config['ssl_verification']);
+        $this->assertSame(500, $config['indexing']['chunk_size']);
     }
 
     public function test_it_registers_the_client_as_a_shared_singleton_with_a_string_alias()

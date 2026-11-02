@@ -7,9 +7,11 @@ use Elastic\Elasticsearch\Exception\ClientResponseException;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Arr;
 use Illuminate\Support\LazyCollection;
+use InvalidArgumentException;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
 use Shabayek\Elastic\Builders\SearchBuilder;
+use Shabayek\Elastic\Exceptions\BulkOperationException;
 
 class ElasticSearchEngine extends Engine
 {
@@ -28,15 +30,30 @@ class ElasticSearchEngine extends Engine
     protected $softDelete;
 
     /**
+     * The maximum number of documents sent in one bulk request.
+     *
+     * @var int
+     */
+    protected $chunkSize;
+
+    /**
      * Create a new engine instance.
      *
      * @param  \Elastic\Elasticsearch\Client  $client
      * @param  bool  $softDelete
+     * @param  int  $chunkSize
+     *
+     * @throws \InvalidArgumentException
      */
-    public function __construct(Client $client, bool $softDelete = false)
+    public function __construct(Client $client, bool $softDelete = false, int $chunkSize = 500)
     {
+        if ($chunkSize < 1) {
+            throw new InvalidArgumentException('The Elasticsearch bulk chunk size must be at least 1.');
+        }
+
         $this->client = $client;
         $this->softDelete = $softDelete;
+        $this->chunkSize = $chunkSize;
     }
 
     /**
@@ -55,17 +72,18 @@ class ElasticSearchEngine extends Engine
             $models->each->pushSoftDeleteMetadata();
         }
 
-        $models->each(function ($model) {
-            if (empty($searchableData = $model->toSearchableArray())) {
-                return;
-            }
+        $this->bulk((function () use ($models) {
+            foreach ($models as $model) {
+                if (empty($searchableData = $model->toSearchableArray())) {
+                    continue;
+                }
 
-            $this->client->index([
-                'index' => $model->indexableAs(),
-                'id' => $model->getScoutKey(),
-                'body' => array_merge($searchableData, $model->scoutMetadata()),
-            ]);
-        });
+                yield [
+                    'action' => ['index' => ['_index' => $model->indexableAs(), '_id' => (string) $model->getScoutKey()]],
+                    'source' => array_merge($searchableData, $model->scoutMetadata()),
+                ];
+            }
+        })());
     }
 
     /**
@@ -289,6 +307,114 @@ class ElasticSearchEngine extends Engine
     public function deleteIndex($name)
     {
         return $this->client->indices()->delete(['index' => $name])->asArray();
+    }
+
+    /**
+     * Send the operations in bulk requests of at most "chunk size" operations.
+     *
+     * Every chunk is sent; the failures of all chunks are then reported together.
+     *
+     * @param  iterable<int, array{action: array, source?: array}>  $operations
+     * @return void
+     *
+     * @throws \Shabayek\Elastic\Exceptions\BulkOperationException
+     */
+    protected function bulk(iterable $operations): void
+    {
+        $failures = [];
+        $total = 0;
+        $chunk = [];
+
+        foreach ($operations as $operation) {
+            $chunk[] = $operation;
+
+            if (count($chunk) === $this->chunkSize) {
+                array_push($failures, ...$this->sendBulkChunk($chunk));
+                $total += count($chunk);
+                $chunk = [];
+            }
+        }
+
+        if ($chunk !== []) {
+            array_push($failures, ...$this->sendBulkChunk($chunk));
+            $total += count($chunk);
+        }
+
+        if ($failures !== []) {
+            throw new BulkOperationException($failures, $total);
+        }
+    }
+
+    /**
+     * Send one bulk request and return its failed operations.
+     *
+     * A bulk request answers HTTP 200 even when operations fail, so the result
+     * of every operation is checked.
+     *
+     * @param  array<int, array{action: array, source?: array}>  $operations
+     * @return array<int, array>
+     */
+    protected function sendBulkChunk(array $operations): array
+    {
+        $body = [];
+
+        foreach ($operations as $operation) {
+            $body[] = $operation['action'];
+
+            if (isset($operation['source'])) {
+                $body[] = $operation['source'];
+            }
+        }
+
+        $items = $this->client->bulk(['body' => $body])->asArray()['items'] ?? [];
+        $failures = [];
+
+        foreach ($operations as $position => $operation) {
+            $type = array_key_first($operation['action']);
+            $result = $items[$position][$type] ?? null;
+
+            if ($this->bulkOperationSucceeded($type, $result)) {
+                continue;
+            }
+
+            $error = $result['error'] ?? null;
+
+            [$errorType, $reason] = match (true) {
+                ! is_array($result) => ['missing_result', 'The bulk response has no result for this operation.'],
+                is_array($error) => [$error['type'] ?? null, $error['reason'] ?? null],
+                is_string($error) => [null, $error],
+                default => [null, $result['result'] ?? null],
+            };
+
+            $failures[] = [
+                'operation' => $type,
+                'index' => $operation['action'][$type]['_index'],
+                'id' => $operation['action'][$type]['_id'],
+                'status' => isset($result['status']) ? (int) $result['status'] : null,
+                'type' => $errorType,
+                'reason' => $reason,
+            ];
+        }
+
+        return $failures;
+    }
+
+    /**
+     * Determine if a bulk operation result is a success.
+     *
+     * @param  string  $type
+     * @param  mixed  $result
+     * @return bool
+     */
+    protected function bulkOperationSucceeded(string $type, $result): bool
+    {
+        if (! is_array($result) || isset($result['error'])) {
+            return false;
+        }
+
+        $status = (int) ($result['status'] ?? 0);
+
+        return $status >= 200 && $status < 300;
     }
 
     /**

@@ -12,36 +12,47 @@ use Shabayek\Elastic\Tests\Fixtures\Product;
 
 class EngineIndexingTest extends EngineTestCase
 {
-    public function test_update_indexes_each_model_under_its_scout_key()
+    public function test_update_indexes_each_model_under_its_scout_key_in_one_bulk_request()
     {
         $posts = $this->withoutSearchSync(fn () => new Collection([
             Post::create(['title' => 'first']),
             Post::create(['title' => 'second']),
         ]));
+        $this->respondToBulk();
 
         $this->engine()->update($posts);
 
-        $this->assertSame(['PUT /posts/_doc/1', 'PUT /posts/_doc/2'], $this->sentRequests());
-        $this->assertSame(['id' => 1, 'title' => 'first'], $this->requestBody($this->http->requests[0]));
+        $this->assertSame(['POST /_bulk'], $this->sentRequests());
+        $this->assertSame([
+            ['index', ['_index' => 'posts', '_id' => '1'], ['id' => 1, 'title' => 'first']],
+            ['index', ['_index' => 'posts', '_id' => '2'], ['id' => 2, 'title' => 'second']],
+        ], $this->bulkOperations($this->http->lastRequest()));
     }
 
     public function test_update_uses_a_custom_string_primary_key_and_the_indexable_index()
     {
         $product = $this->withoutSearchSync(fn () => Product::create(['sku' => 'SKU-42', 'name' => 'Lamp']));
+        $this->respondToBulk();
 
         $this->engine()->update(new Collection([$product]));
 
-        $this->assertSame(['PUT /products_write/_doc/SKU-42'], $this->sentRequests());
-        $this->assertSame(['name' => 'Lamp'], $this->requestBody($this->http->lastRequest()));
+        $this->assertSame(
+            [['index', ['_index' => 'products_write', '_id' => 'SKU-42'], ['name' => 'Lamp']]],
+            $this->bulkOperations($this->http->lastRequest())
+        );
     }
 
     public function test_update_uses_an_overridden_get_scout_key()
     {
         $document = $this->withoutSearchSync(fn () => Document::create(['slug' => 'hello-world', 'title' => 'Hello']));
+        $this->respondToBulk();
 
         $this->engine()->update(new Collection([$document]));
 
-        $this->assertSame(['PUT /documents/_doc/hello-world'], $this->sentRequests());
+        $this->assertSame(
+            [['index', ['_index' => 'documents', '_id' => 'hello-world'], ['title' => 'Hello']]],
+            $this->bulkOperations($this->http->lastRequest())
+        );
     }
 
     public function test_update_skips_models_with_an_empty_searchable_array()
@@ -50,10 +61,23 @@ class EngineIndexingTest extends EngineTestCase
             Document::create(['slug' => 'empty', 'title' => null]),
             Document::create(['slug' => 'full', 'title' => 'Full']),
         ]));
+        $this->respondToBulk();
 
         $this->engine()->update($documents);
 
-        $this->assertSame(['PUT /documents/_doc/full'], $this->sentRequests());
+        $this->assertSame(
+            [['index', ['_index' => 'documents', '_id' => 'full'], ['title' => 'Full']]],
+            $this->bulkOperations($this->http->lastRequest())
+        );
+    }
+
+    public function test_update_sends_nothing_when_every_searchable_array_is_empty()
+    {
+        $document = $this->withoutSearchSync(fn () => Document::create(['slug' => 'empty', 'title' => null]));
+
+        $this->engine()->update(new Collection([$document]));
+
+        $this->assertSame([], $this->http->requests);
     }
 
     public function test_update_with_no_models_sends_nothing()
@@ -66,10 +90,11 @@ class EngineIndexingTest extends EngineTestCase
     public function test_update_does_not_add_soft_delete_metadata_when_soft_delete_is_disabled()
     {
         $article = $this->withoutSearchSync(fn () => Article::create(['title' => 'Draft']));
+        $this->respondToBulk();
 
         $this->engine()->update(new Collection([$article]));
 
-        $this->assertSame(['title' => 'Draft'], $this->requestBody($this->http->lastRequest()));
+        $this->assertSame(['title' => 'Draft'], $this->bulkOperations($this->http->lastRequest())[0][2]);
     }
 
     public function test_update_adds_soft_delete_metadata_when_soft_delete_is_enabled()
@@ -83,21 +108,24 @@ class EngineIndexingTest extends EngineTestCase
 
             return [$live, $trashed];
         });
+        $this->respondToBulk();
 
         $this->engine()->update(new Collection([$live, $trashed]));
 
-        $this->assertSame(['title' => 'Live', '__soft_deleted' => 0], $this->requestBody($this->http->requests[0]));
-        $this->assertSame(['title' => 'Trashed', '__soft_deleted' => 1], $this->requestBody($this->http->requests[1]));
+        $operations = $this->bulkOperations($this->http->lastRequest());
+        $this->assertSame(['title' => 'Live', '__soft_deleted' => 0], $operations[0][2]);
+        $this->assertSame(['title' => 'Trashed', '__soft_deleted' => 1], $operations[1][2]);
     }
 
     public function test_update_merges_custom_scout_metadata()
     {
         $post = $this->withoutSearchSync(fn () => Post::create(['title' => 'Meta']));
         $post->withScoutMetadata('tenant', 7);
+        $this->respondToBulk();
 
         $this->engine()->update(new Collection([$post]));
 
-        $this->assertSame(['id' => 1, 'title' => 'Meta', 'tenant' => 7], $this->requestBody($this->http->lastRequest()));
+        $this->assertSame(['id' => 1, 'title' => 'Meta', 'tenant' => 7], $this->bulkOperations($this->http->lastRequest())[0][2]);
     }
 
     public function test_delete_removes_each_model_by_its_scout_key_from_the_indexable_index()
@@ -145,9 +173,11 @@ class EngineIndexingTest extends EngineTestCase
     {
         $post = $this->withoutSearchSync(fn () => Post::create(['title' => 'Synced']));
 
+        $this->respondToBulk();
+
         $post->searchable();
         $post->unsearchable();
 
-        $this->assertSame(['PUT /posts/_doc/1', 'DELETE /posts/_doc/1'], $this->sentRequests());
+        $this->assertSame(['POST /_bulk', 'DELETE /posts/_doc/1'], $this->sentRequests());
     }
 }

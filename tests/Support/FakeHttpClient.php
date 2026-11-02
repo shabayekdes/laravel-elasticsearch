@@ -21,7 +21,7 @@ class FakeHttpClient implements ClientInterface
     public array $requests = [];
 
     /**
-     * @var \Psr\Http\Message\ResponseInterface[]
+     * @var array<int, \Psr\Http\Message\ResponseInterface|callable>
      */
     protected array $responses = [];
 
@@ -35,11 +35,25 @@ class FakeHttpClient implements ClientInterface
         return $this;
     }
 
+    /**
+     * Queue a response built from the request by the callback.
+     *
+     * @param  callable(\Psr\Http\Message\RequestInterface): \Psr\Http\Message\ResponseInterface  $callback
+     */
+    public function pushCallback(callable $callback): self
+    {
+        $this->responses[] = $callback;
+
+        return $this;
+    }
+
     public function sendRequest(RequestInterface $request): ResponseInterface
     {
         $this->requests[] = $request;
 
-        return array_shift($this->responses) ?? static::response([]);
+        $response = array_shift($this->responses) ?? static::response([]);
+
+        return is_callable($response) ? $response($request) : $response;
     }
 
     public function lastRequest(): ?RequestInterface

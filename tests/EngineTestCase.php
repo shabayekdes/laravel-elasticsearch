@@ -108,6 +108,70 @@ abstract class EngineTestCase extends TestCase
         return $result;
     }
 
+    /**
+     * Decode a bulk request into [action type, action metadata, source|null] operations.
+     */
+    protected function bulkOperations(RequestInterface $request): array
+    {
+        $lines = array_map(
+            fn ($line) => json_decode($line, true),
+            array_values(array_filter(explode("\n", (string) $request->getBody()), fn ($line) => $line !== ''))
+        );
+
+        $operations = [];
+
+        while (($action = array_shift($lines)) !== null) {
+            $type = array_key_first($action);
+            $source = in_array($type, ['index', 'create', 'update']) ? array_shift($lines) : null;
+            $operations[] = [$type, $action[$type], $source];
+        }
+
+        return $operations;
+    }
+
+    /**
+     * Respond to the next bulk requests as Elasticsearch would, with per-operation results.
+     *
+     * The resolver receives (type, metadata) and returns an item result; by default every
+     * operation succeeds.
+     */
+    protected function respondToBulk(int $times = 1, ?callable $resolver = null): void
+    {
+        $resolver ??= fn (string $type, array $meta) => $this->bulkItem($type, $meta);
+
+        for ($i = 0; $i < $times; $i++) {
+            $this->http->pushCallback(function (RequestInterface $request) use ($resolver) {
+                $items = [];
+
+                foreach ($this->bulkOperations($request) as [$type, $meta]) {
+                    $items[] = [$type => $resolver($type, $meta)];
+                }
+
+                $errors = (bool) array_filter($items, fn ($item) => isset(reset($item)['error']));
+
+                return FakeHttpClient::response(['took' => 3, 'errors' => $errors, 'items' => $items]);
+            });
+        }
+    }
+
+    /**
+     * A successful (or, with a status and error, failed) bulk item result.
+     */
+    protected function bulkItem(string $type, array $meta, ?int $status = null, ?array $error = null, ?string $result = null): array
+    {
+        $item = [
+            '_index' => $meta['_index'],
+            '_id' => $meta['_id'],
+            'status' => $status ?? ($type === 'delete' ? 200 : 201),
+        ];
+
+        if ($error !== null) {
+            return $item + ['error' => $error];
+        }
+
+        return $item + ['result' => $result ?? ($type === 'delete' ? 'deleted' : 'created')];
+    }
+
     protected function requestBody(RequestInterface $request): ?array
     {
         return json_decode((string) $request->getBody(), true);
