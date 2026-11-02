@@ -2,7 +2,7 @@
 
 namespace Shabayek\Elastic;
 
-use Elasticsearch\Client;
+use Elastic\Elasticsearch\Client;
 use Illuminate\Support\Facades\Artisan;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
@@ -68,7 +68,7 @@ class ElasticSearchEngine extends Engine
     {
         $searchBuilder = new SearchBuilder($builder);
 
-        return $this->client->search($searchBuilder->toArray());
+        return $this->client->search($searchBuilder->toArray())->asArray();
     }
 
     /**
@@ -86,7 +86,7 @@ class ElasticSearchEngine extends Engine
         $searchBuilder->setFrom(($page - 1) * $perPage);
         $searchBuilder->setSize($perPage);
 
-        return $this->client->search($searchBuilder->toArray());
+        return $this->client->search($searchBuilder->toArray())->asArray();
     }
 
     /**

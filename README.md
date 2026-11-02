@@ -6,8 +6,9 @@ This is a Laravel Package for elasticsearch scout engine.
 
 ### Requirements
 
-- PHP version 7.3+
-- Elasticsearch you can install with docker OR in your machine from link [HERE](https://www.elastic.co/guide/en/elasticsearch/reference/current/install-elasticsearch.html).
+- PHP 8.1+
+- Laravel 10, 11, 12 or 13 with Laravel Scout 10.13+ or 11
+- Elasticsearch 8.x or 9.x, you can install with docker OR in your machine from link [HERE](https://www.elastic.co/guide/en/elasticsearch/reference/current/install-elasticsearch.html).
 
 ### Usage
 
@@ -20,5 +21,5 @@ composer require shabayek/laravel-elasticsearch
 - Publish the config file with following command
 
 ```bash
-php artisan vendor:publish --provider="Shabayek\Elastic\ElasticServiceProvider" --tag=config
+php artisan vendor:publish --provider="Shabayek\Elastic\Providers\ElasticServiceProvider" --tag=elasticsearch-config
 ```

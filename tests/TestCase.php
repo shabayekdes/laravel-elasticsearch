@@ -2,6 +2,7 @@
 
 namespace Shabayek\Elastic\Tests;
 
+use Laravel\Scout\ScoutServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Shabayek\Elastic\Providers\ElasticServiceProvider;
 
@@ -21,7 +22,19 @@ abstract class TestCase extends Orchestra
     protected function getPackageProviders($app): array
     {
         return [
+            ScoutServiceProvider::class,
             ElasticServiceProvider::class,
         ];
+    }
+
+    /**
+     * Define environment setup.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @return void
+     */
+    protected function defineEnvironment($app): void
+    {
+        $app['config']->set('scout.driver', 'elasticsearch');
     }
 }
