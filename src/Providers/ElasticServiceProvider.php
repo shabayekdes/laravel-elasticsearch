@@ -42,7 +42,10 @@ class ElasticServiceProvider extends ServiceProvider
 
         $this->callAfterResolving(EngineManager::class, function (EngineManager $manager) {
             $manager->extend('elasticsearch', function ($app) {
-                return new ElasticSearchEngine($app->make(Client::class));
+                return new ElasticSearchEngine(
+                    $app->make(Client::class),
+                    (bool) $app['config']->get('scout.soft_delete', false)
+                );
             });
         });
 

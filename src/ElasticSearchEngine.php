@@ -3,6 +3,7 @@
 namespace Shabayek\Elastic;
 
 use Elastic\Elasticsearch\Client;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Artisan;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
@@ -10,11 +11,30 @@ use Shabayek\Elastic\Builders\SearchBuilder;
 
 class ElasticSearchEngine extends Engine
 {
+    /**
+     * The Elasticsearch client.
+     *
+     * @var \Elastic\Elasticsearch\Client
+     */
     protected $client;
 
-    public function __construct(Client $client)
+    /**
+     * Determines if soft deleted models are kept in the index.
+     *
+     * @var bool
+     */
+    protected $softDelete;
+
+    /**
+     * Create a new engine instance.
+     *
+     * @param  \Elastic\Elasticsearch\Client  $client
+     * @param  bool  $softDelete
+     */
+    public function __construct(Client $client, bool $softDelete = false)
     {
         $this->client = $client;
+        $this->softDelete = $softDelete;
     }
 
     /**
@@ -29,14 +49,20 @@ class ElasticSearchEngine extends Engine
             return;
         }
 
-        $models->each(function ($model) {
-            $params = [
-                'index' => $model->searchableAs(),
-                'id' => $model->id,
-                'body' => $model->toSearchableArray(),
-            ];
+        if ($this->softDelete && $this->usesSoftDelete($models->first())) {
+            $models->each->pushSoftDeleteMetadata();
+        }
 
-            $this->client->index($params);
+        $models->each(function ($model) {
+            if (empty($searchableData = $model->toSearchableArray())) {
+                return;
+            }
+
+            $this->client->index([
+                'index' => $model->indexableAs(),
+                'id' => $model->getScoutKey(),
+                'body' => array_merge($searchableData, $model->scoutMetadata()),
+            ]);
         });
     }
 
@@ -49,12 +75,10 @@ class ElasticSearchEngine extends Engine
     public function delete($models)
     {
         $models->each(function ($model) {
-            $params = [
-                'index' => $model->searchableAs(),
-                'id' => $model->id,
-            ];
-
-            $this->client->delete($params);
+            $this->client->delete([
+                'index' => $model->indexableAs(),
+                'id' => $model->getScoutKey(),
+            ]);
         });
     }
 
@@ -98,6 +122,29 @@ class ElasticSearchEngine extends Engine
     public function mapIds($results)
     {
         return collect(data_get($results, 'hits.hits'))->pluck('_id')->values();
+    }
+
+    /**
+     * Pluck and return the primary keys of the given results using the given key name.
+     *
+     * @param  mixed  $results
+     * @param  string  $key
+     * @return \Illuminate\Support\Collection
+     */
+    public function mapIdsFrom($results, $key)
+    {
+        return $this->mapIds($results);
+    }
+
+    /**
+     * Get the results of the query as a Collection of primary keys.
+     *
+     * @param  \Laravel\Scout\Builder  $builder
+     * @return \Illuminate\Support\Collection
+     */
+    public function keys(Builder $builder)
+    {
+        return $this->mapIds($this->search($builder));
     }
 
     /**
@@ -182,26 +229,14 @@ class ElasticSearchEngine extends Engine
     }
 
     /**
-     * Pluck and return the primary keys of the given results using the given key name.
+     * Determine if the given model uses soft deletes.
      *
-     * @param  mixed  $results
-     * @param  string  $key
-     * @return \Illuminate\Support\Collection
+     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @return bool
      */
-    public function mapIdsFrom($results, $key)
+    protected function usesSoftDelete($model): bool
     {
-        return $this->mapIds($results);
-    }
-
-    /**
-     * Get the results of the query as a Collection of primary keys.
-     *
-     * @param  \Laravel\Scout\Builder  $builder
-     * @return \Illuminate\Support\Collection
-     */
-    public function keys(Builder $builder)
-    {
-        return $this->mapIds($this->search($builder));
+        return in_array(SoftDeletes::class, class_uses_recursive($model));
     }
 
     /**
