@@ -151,8 +151,8 @@ class SearchBuilder
             $this->sort[] = [$order['column'] => ['order' => $order['direction']]];
         }
 
-        if ($builder->query) {
-            $this->multiMatch($model->searchableFields(), $builder->query);
+        if ($builder->query !== null && $builder->query !== '') {
+            $this->multiMatch($this->searchableFields($model), (string) $builder->query);
         }
 
         foreach ($this->wheres($builder->wheres) as [$field, $operator, $value]) {
@@ -336,7 +336,24 @@ class SearchBuilder
     }
 
     /**
+     * Get the fields to search from the model's optional searchableFields() method.
+     *
+     * @param  Model  $model
+     * @return array
+     */
+    private function searchableFields($model): array
+    {
+        return method_exists($model, 'searchableFields')
+            ? array_values((array) $model->searchableFields())
+            : [];
+    }
+
+    /**
      * Add a multi match query.
+     *
+     * Without fields, Elasticsearch searches the index's "index.query.default_field"
+     * (all eligible fields by default); "lenient" then ignores fields whose type
+     * cannot parse the query text, such as numbers and dates.
      *
      * @param  array  $fields
      * @param  string  $term
@@ -344,11 +361,9 @@ class SearchBuilder
      */
     private function multiMatch(array $fields, $term)
     {
-        $params = [
-            'query' => $term ?? '',
-            'fields' => $fields,
-            'type' => 'phrase_prefix',
-        ];
+        $params = $fields === []
+            ? ['query' => $term, 'type' => 'phrase_prefix', 'lenient' => true]
+            : ['query' => $term, 'fields' => $fields, 'type' => 'phrase_prefix'];
 
         $this->append('multi_match', $params);
     }

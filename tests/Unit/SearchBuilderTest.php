@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use Laravel\Scout\Builder;
 use Shabayek\Elastic\Builders\SearchBuilder;
 use Shabayek\Elastic\Tests\EngineTestCase;
+use Shabayek\Elastic\Tests\Fixtures\Comment;
 use Shabayek\Elastic\Tests\Fixtures\Post;
 
 enum PostStatus: string
@@ -260,6 +261,61 @@ class SearchBuilderTest extends EngineTestCase
         Post::search('lamp')->within('posts_archive')->raw();
 
         $this->assertSame(['POST /posts_archive/_search'], $this->sentRequests());
+    }
+
+    public function test_full_text_searches_the_fields_from_searchable_fields()
+    {
+        $this->assertSame(
+            ['multi_match' => ['query' => 'lamp', 'fields' => ['title'], 'type' => 'phrase_prefix']],
+            $this->request('lamp')['body']['query']['bool']['must'][0]
+        );
+    }
+
+    public function test_full_text_falls_back_to_the_index_default_fields_without_searchable_fields()
+    {
+        $request = (new SearchBuilder(new Builder(new Comment(), 'lamp')))->toArray();
+
+        $this->assertSame(
+            ['multi_match' => ['query' => 'lamp', 'type' => 'phrase_prefix', 'lenient' => true]],
+            $request['body']['query']['bool']['must'][0]
+        );
+    }
+
+    public function test_empty_searchable_fields_fall_back_to_the_index_default_fields()
+    {
+        $model = new class extends Post
+        {
+            public function searchableFields()
+            {
+                return [];
+            }
+        };
+
+        $request = (new SearchBuilder(new Builder($model, 'lamp')))->toArray();
+
+        $this->assertArrayNotHasKey('fields', $request['body']['query']['bool']['must'][0]['multi_match']);
+        $this->assertTrue($request['body']['query']['bool']['must'][0]['multi_match']['lenient']);
+    }
+
+    public function test_searching_without_searchable_fields_through_scout()
+    {
+        $this->http->push($this->searchResponse([]));
+
+        Comment::search('great')->where('approved', true)->raw();
+
+        $bool = $this->requestBody($this->http->lastRequest())['query']['bool'];
+        $this->assertSame(['query' => 'great', 'type' => 'phrase_prefix', 'lenient' => true], $bool['must'][0]['multi_match']);
+        $this->assertSame([['term' => ['approved' => true]]], $bool['filter']);
+    }
+
+    public function test_a_zero_query_is_searched()
+    {
+        $this->assertSame('0', $this->request('0')['body']['query']['bool']['must'][0]['multi_match']['query']);
+    }
+
+    public function test_an_empty_query_matches_everything()
+    {
+        $this->assertArrayNotHasKey('query', $this->request('')['body']);
     }
 
     public function test_constraints_reach_elasticsearch_through_the_installed_scout_version()
