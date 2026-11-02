@@ -121,8 +121,13 @@ return [
     | Models are indexed and deleted through the bulk API. "chunk_size" is the
     | maximum number of documents sent in one bulk request.
     |
+    | "refresh" controls when the changes become visible to searches: false
+    | (default, on the next periodic refresh), true (refresh immediately) or
+    | "wait_for" (wait for the next refresh before returning).
+    |
     */
     'indexing' => [
         'chunk_size' => (int) env('ELASTIC_BULK_CHUNK_SIZE', 500),
+        'refresh' => env('ELASTIC_REFRESH', false),
     ],
 ];

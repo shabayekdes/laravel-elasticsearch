@@ -45,7 +45,8 @@ class ElasticServiceProvider extends ServiceProvider
                 return new ElasticSearchEngine(
                     $app->make(Client::class),
                     (bool) $app['config']->get('scout.soft_delete', false),
-                    (int) $app['config']->get('elasticsearch.indexing.chunk_size', 500)
+                    (int) $app['config']->get('elasticsearch.indexing.chunk_size', 500),
+                    $app['config']->get('elasticsearch.indexing.refresh', false) ?? false
                 );
             });
         });

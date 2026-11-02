@@ -30,6 +30,12 @@ class EngineBulkTest extends EngineTestCase
         $this->app->make(EngineManager::class)->forgetEngines();
     }
 
+    protected function useRefresh(bool|string $refresh): void
+    {
+        $this->app['config']->set('elasticsearch.indexing.refresh', $refresh);
+        $this->app->make(EngineManager::class)->forgetEngines();
+    }
+
     /**
      * Ids sent in each bulk request.
      */
@@ -251,6 +257,60 @@ class EngineBulkTest extends EngineTestCase
         $this->assertSame(['3'], $e->failedIds());
         $this->assertSame('delete', $e->failures()[0]['operation']);
         $this->assertSame(403, $e->failures()[0]['status']);
+    }
+
+    public function test_bulk_requests_do_not_refresh_by_default()
+    {
+        $this->respondToBulk(2);
+        $posts = $this->posts(2);
+
+        $this->engine()->update($posts);
+        $this->engine()->delete($posts);
+
+        $this->assertSame(['POST /_bulk', 'POST /_bulk'], $this->sentRequests());
+    }
+
+    public function test_bulk_requests_can_refresh_immediately()
+    {
+        $this->useRefresh(true);
+        $this->respondToBulk(2);
+        $posts = $this->posts(2);
+
+        $this->engine()->update($posts);
+        $this->engine()->delete($posts);
+
+        $this->assertSame(['POST /_bulk?refresh=true', 'POST /_bulk?refresh=true'], $this->sentRequests());
+    }
+
+    public function test_bulk_requests_can_wait_for_a_refresh()
+    {
+        $this->useRefresh('wait_for');
+        $this->useChunkSize(1);
+        $this->respondToBulk(2);
+
+        $this->engine()->update($this->posts(2));
+
+        $this->assertSame(['POST /_bulk?refresh=wait_for', 'POST /_bulk?refresh=wait_for'], $this->sentRequests());
+    }
+
+    public function test_the_refresh_option_does_not_apply_to_searches()
+    {
+        $this->useRefresh(true);
+        $this->http->push($this->searchResponse([]));
+
+        Post::search('post')->raw();
+
+        $this->assertSame(['POST /posts/_search'], $this->sentRequests());
+    }
+
+    public function test_an_invalid_refresh_option_is_rejected()
+    {
+        $this->useRefresh('sometimes');
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('true, false or "wait_for"');
+
+        $this->engine();
     }
 
     public function test_request_level_authentication_errors_are_not_swallowed()

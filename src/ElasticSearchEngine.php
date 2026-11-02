@@ -37,23 +37,36 @@ class ElasticSearchEngine extends Engine
     protected $chunkSize;
 
     /**
+     * The refresh mode of bulk requests: false, true or "wait_for".
+     *
+     * @var bool|string
+     */
+    protected $refresh;
+
+    /**
      * Create a new engine instance.
      *
      * @param  \Elastic\Elasticsearch\Client  $client
      * @param  bool  $softDelete
      * @param  int  $chunkSize
+     * @param  bool|string  $refresh
      *
      * @throws \InvalidArgumentException
      */
-    public function __construct(Client $client, bool $softDelete = false, int $chunkSize = 500)
+    public function __construct(Client $client, bool $softDelete = false, int $chunkSize = 500, bool|string $refresh = false)
     {
         if ($chunkSize < 1) {
             throw new InvalidArgumentException('The Elasticsearch bulk chunk size must be at least 1.');
         }
 
+        if (! is_bool($refresh) && $refresh !== 'wait_for') {
+            throw new InvalidArgumentException('The Elasticsearch refresh option must be true, false or "wait_for".');
+        }
+
         $this->client = $client;
         $this->softDelete = $softDelete;
         $this->chunkSize = $chunkSize;
+        $this->refresh = $refresh;
     }
 
     /**
@@ -371,7 +384,13 @@ class ElasticSearchEngine extends Engine
             }
         }
 
-        $items = $this->client->bulk(['body' => $body])->asArray()['items'] ?? [];
+        $params = ['body' => $body];
+
+        if ($this->refresh !== false) {
+            $params['refresh'] = $this->refresh === true ? 'true' : $this->refresh;
+        }
+
+        $items = $this->client->bulk($params)->asArray()['items'] ?? [];
         $failures = [];
 
         foreach ($operations as $position => $operation) {
