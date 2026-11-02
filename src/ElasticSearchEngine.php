@@ -217,7 +217,9 @@ class ElasticSearchEngine extends Engine
      */
     public function getTotalCount($results)
     {
-        return data_get($results, 'hits.total.value', 0);
+        $total = $results['hits']['total'] ?? 0;
+
+        return (int) (is_array($total) ? ($total['value'] ?? 0) : $total);
     }
 
     /**

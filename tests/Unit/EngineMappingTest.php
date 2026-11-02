@@ -214,4 +214,41 @@ class EngineMappingTest extends EngineTestCase
 
         $this->assertSame([5, 2], Post::search('post')->keys()->all());
         $this->assertSame(['SKU-2', 'SKU-1'], Product::search('lamp')->keys()->all());
-    }}
+    }
+
+    public function test_get_total_count_reads_object_and_integer_totals()
+    {
+        $engine = $this->engine();
+
+        $this->assertSame(25000, $engine->getTotalCount(['hits' => ['total' => ['value' => 25000, 'relation' => 'eq']]]));
+        $this->assertSame(12, $engine->getTotalCount(['hits' => ['total' => 12]]));
+        $this->assertSame(0, $engine->getTotalCount(['hits' => []]));
+        $this->assertSame(0, $engine->getTotalCount(null));
+    }
+
+    public function test_searches_request_exact_total_hits()
+    {
+        $this->http->push($this->searchResponse([]))->push($this->searchResponse([]));
+
+        Post::search('post')->raw();
+        Post::search('post')->paginateRaw(10);
+
+        foreach ($this->http->requests as $request) {
+            $this->assertTrue($this->requestBody($request)['track_total_hits']);
+        }
+    }
+
+    public function test_paginator_uses_the_exact_total_beyond_ten_thousand_hits()
+    {
+        $this->seedPosts(3);
+        $this->http->push($this->searchResponse([1, 2, 3], 25000));
+
+        $paginator = Post::search('post')->paginate(3, 'page', 2);
+
+        $this->assertSame(25000, $paginator->total());
+        $this->assertSame(8334, $paginator->lastPage());
+        $this->assertSame([1, 2, 3], $paginator->getCollection()->pluck('id')->all());
+        $this->assertSame(3, $this->requestBody($this->http->lastRequest())['from']);
+        $this->assertTrue($this->requestBody($this->http->lastRequest())['track_total_hits']);
+    }
+}

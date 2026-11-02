@@ -145,6 +145,7 @@ class SearchBuilder
             'body' => [
                 'from' => $this->from,
                 'size' => $this->size,
+                'track_total_hits' => true,
             ],
         ];
         if ($this->query) {
