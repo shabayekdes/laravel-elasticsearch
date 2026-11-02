@@ -6,8 +6,8 @@ This is a Laravel Package for elasticsearch scout engine.
 
 ### Requirements
 
-- PHP 8.1+
-- Laravel 10, 11, 12 or 13 with Laravel Scout 10.13+ or 11
+- PHP 8.2+ (Laravel 13 requires PHP 8.3+)
+- Laravel 12 or 13 with Laravel Scout 10.24+ or 11
 - Elasticsearch 8.x or 9.x, you can install with docker OR in your machine from link [HERE](https://www.elastic.co/guide/en/elasticsearch/reference/current/install-elasticsearch.html).
 
 ### Usage
