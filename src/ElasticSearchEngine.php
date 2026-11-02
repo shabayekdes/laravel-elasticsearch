@@ -5,6 +5,7 @@ namespace Shabayek\Elastic;
 use Elastic\Elasticsearch\Client;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\LazyCollection;
 use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
 use Shabayek\Elastic\Builders\SearchBuilder;
@@ -121,11 +122,13 @@ class ElasticSearchEngine extends Engine
      */
     public function mapIds($results)
     {
-        return collect(data_get($results, 'hits.hits'))->pluck('_id')->values();
+        return collect($this->hits($results))->pluck('_id')->values();
     }
 
     /**
      * Pluck and return the primary keys of the given results using the given key name.
+     *
+     * The value is read from the document source, falling back to the document id.
      *
      * @param  mixed  $results
      * @param  string  $key
@@ -133,7 +136,9 @@ class ElasticSearchEngine extends Engine
      */
     public function mapIdsFrom($results, $key)
     {
-        return $this->mapIds($results);
+        return collect($this->hits($results))
+            ->map(fn ($hit) => $hit['_source'][$key] ?? $hit['_id'])
+            ->values();
     }
 
     /**
@@ -144,7 +149,11 @@ class ElasticSearchEngine extends Engine
      */
     public function keys(Builder $builder)
     {
-        return $this->mapIds($this->search($builder));
+        $keys = $this->mapIds($this->search($builder));
+
+        return in_array($builder->model->getScoutKeyType(), ['int', 'integer'])
+            ? $keys->map(fn ($key) => (int) $key)
+            : $keys;
     }
 
     /**
@@ -157,16 +166,20 @@ class ElasticSearchEngine extends Engine
      */
     public function map(Builder $builder, $results, $model)
     {
-        $hits = data_get($results, 'hits.hits');
+        $hits = $this->hits($results);
 
         if (count($hits) === 0) {
             return $model->newCollection();
         }
 
-        return $model->getScoutModelsByIds(
-            $builder,
-            collect($hits)->pluck('_id')->values()->all()
-        );
+        $ids = array_column($hits, '_id');
+        $positions = array_flip($ids);
+
+        return $model->getScoutModelsByIds($builder, $ids)
+            ->filter(fn ($model) => isset($positions[$model->getScoutKey()]))
+            ->map(fn ($model) => $this->withHitMetadata($model, $hits[$positions[$model->getScoutKey()]]))
+            ->sortBy(fn ($model) => $positions[$model->getScoutKey()])
+            ->values();
     }
 
     /**
@@ -179,6 +192,21 @@ class ElasticSearchEngine extends Engine
      */
     public function lazyMap(Builder $builder, $results, $model)
     {
+        $hits = $this->hits($results);
+
+        if (count($hits) === 0) {
+            return LazyCollection::make($model->newCollection());
+        }
+
+        $ids = array_column($hits, '_id');
+        $positions = array_flip($ids);
+
+        return $model->queryScoutModelsByIds($builder, $ids)
+            ->cursor()
+            ->filter(fn ($model) => isset($positions[$model->getScoutKey()]))
+            ->map(fn ($model) => $this->withHitMetadata($model, $hits[$positions[$model->getScoutKey()]]))
+            ->sortBy(fn ($model) => $positions[$model->getScoutKey()])
+            ->values();
     }
 
     /**
@@ -229,6 +257,37 @@ class ElasticSearchEngine extends Engine
     }
 
     /**
+     * Get the hits of a raw search result.
+     *
+     * @param  mixed  $results
+     * @return array
+     */
+    protected function hits($results): array
+    {
+        $hits = $results['hits']['hits'] ?? [];
+
+        return is_array($hits) ? array_values($hits) : [];
+    }
+
+    /**
+     * Attach the hit metadata (such as "_score") to the model.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @param  array  $hit
+     * @return \Illuminate\Database\Eloquent\Model
+     */
+    protected function withHitMetadata($model, array $hit)
+    {
+        foreach ($hit as $key => $value) {
+            if (str_starts_with($key, '_') && $key !== '_source') {
+                $model->withScoutMetadata($key, $value);
+            }
+        }
+
+        return $model;
+    }
+
+    /**
      * Determine if the given model uses soft deletes.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $model
@@ -237,35 +296,4 @@ class ElasticSearchEngine extends Engine
     protected function usesSoftDelete($model): bool
     {
         return in_array(SoftDeletes::class, class_uses_recursive($model));
-    }
-
-    /**
-     * Get the results of the given query mapped onto models.
-     *
-     * @param  \Laravel\Scout\Builder  $builder
-     * @return \Illuminate\Database\Eloquent\Collection
-     */
-    public function get(Builder $builder)
-    {
-        return $this->map(
-            $builder,
-            $this->search($builder),
-            $builder->model
-        );
-    }
-
-    /**
-     * Get a lazy collection for the given query mapped onto models.
-     *
-     * @param  \Laravel\Scout\Builder  $builder
-     * @return \Illuminate\Database\Eloquent\Collection
-     */
-    public function cursor(Builder $builder)
-    {
-        return $this->lazyMap(
-            $builder,
-            $this->search($builder),
-            $builder->model
-        );
-    }
-}
+    }}
