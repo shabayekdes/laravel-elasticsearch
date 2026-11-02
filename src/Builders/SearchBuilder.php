@@ -195,7 +195,11 @@ class SearchBuilder
     /**
      * Add a "where" constraint as a non-scoring filter.
      *
-     * A null value matches documents where the field is missing or null.
+     * "!=" and "<>" are the exact complement of "=": they also match
+     * documents where the field is missing or null, as Scout's Meilisearch
+     * engine does. Add where($field, '!=', null) to exclude those. A null
+     * value matches documents where the field is missing or null ("=") or
+     * present ("!=").
      *
      * @param  string  $field
      * @param  string  $operator
@@ -261,6 +265,8 @@ class SearchBuilder
 
     /**
      * Add a "where not in" constraint.
+     *
+     * Like "!=", it also matches documents where the field is missing or null.
      *
      * @param  string  $field
      * @param  array  $values

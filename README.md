@@ -23,3 +23,16 @@ composer require shabayek/laravel-elasticsearch
 ```bash
 php artisan vendor:publish --provider="Shabayek\Elastic\Providers\ElasticServiceProvider" --tag=elasticsearch-config
 ```
+
+### Filtering
+
+`where()`, `whereIn()` and `whereNotIn()` filter without changing relevance scores. Elasticsearch does not index `null` (unless the mapping sets `null_value`), so a field set to `null` behaves like a missing field:
+
+| Constraint | Field has the value | Field has another value | Field missing or `null` |
+| --- | --- | --- | --- |
+| `where('status', 'archived')`, `whereIn('status', ['archived'])` | matches | — | — |
+| `where('status', '!=', 'archived')`, `'<>'`, `whereNotIn('status', ['archived'])` | — | matches | matches |
+| `where('status', null)` | — | — | matches |
+| `where('status', '!=', null)` | matches | matches | — |
+
+`!=`, `<>` and `whereNotIn()` are the exact complement of `=` and `whereIn()`, as with Scout's Meilisearch engine. To exclude documents without a value, add `->where('status', '!=', null)`. Comparison operators (`>`, `>=`, `<`, `<=`) never match missing or `null` fields and reject a `null` value.

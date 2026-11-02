@@ -51,6 +51,57 @@ class SearchBuilderTest extends EngineTestCase
         return ['field' => $field, 'operator' => $operator, 'value' => $value];
     }
 
+    /**
+     * Documents with an existing matching value, an existing other value, a
+     * missing field and a null field.
+     */
+    protected function statusDocuments(): array
+    {
+        return [
+            'archived' => ['status' => 'archived'],
+            'draft' => ['status' => 'draft'],
+            'missing' => [],
+            'null' => ['status' => null],
+        ];
+    }
+
+    /**
+     * The keys of the documents a bool filter query matches.
+     *
+     * Evaluates term, terms and exists clauses the way Elasticsearch does: a
+     * null field is not indexed, so like a missing field it does not exist
+     * and matches no term.
+     */
+    protected function matching(array $bool, array $documents): array
+    {
+        $matches = function (array $clause, array $document) {
+            $type = array_key_first($clause);
+            $field = array_key_first($clause[$type]);
+
+            return match ($type) {
+                'exists' => isset($document[$clause[$type]['field']]),
+                'term' => isset($document[$field]) && $document[$field] === $clause[$type][$field],
+                'terms' => isset($document[$field]) && in_array($document[$field], $clause[$type][$field], true),
+            };
+        };
+
+        return array_keys(array_filter($documents, function ($document) use ($bool, $matches) {
+            foreach ($bool['filter'] ?? [] as $clause) {
+                if (! $matches($clause, $document)) {
+                    return false;
+                }
+            }
+
+            foreach ($bool['must_not'] ?? [] as $clause) {
+                if ($matches($clause, $document)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+    }
+
     public function test_full_text_scores_and_structured_constraints_filter()
     {
         $bool = $this->request('lamp', [
@@ -202,6 +253,54 @@ class SearchBuilderTest extends EngineTestCase
         $this->expectException(InvalidArgumentException::class);
 
         $this->request('', ['whereNotIns' => ['tag' => [null]]]);
+    }
+
+    public function test_equality_matches_only_existing_equal_values()
+    {
+        $this->assertSame(
+            ['archived'],
+            $this->matching($this->boolFor([$this->row('status', '=', 'archived')]), $this->statusDocuments())
+        );
+    }
+
+    public function test_inequality_matches_other_values_and_missing_or_null_fields()
+    {
+        foreach (['!=', '<>'] as $operator) {
+            $this->assertSame(
+                ['draft', 'missing', 'null'],
+                $this->matching($this->boolFor([$this->row('status', $operator, 'archived')]), $this->statusDocuments()),
+                "Operator [{$operator}]"
+            );
+        }
+    }
+
+    public function test_where_in_matches_only_existing_listed_values()
+    {
+        $bool = $this->request('', ['whereIns' => ['status' => ['archived']]])['body']['query']['bool'];
+
+        $this->assertSame(['archived'], $this->matching($bool, $this->statusDocuments()));
+    }
+
+    public function test_where_not_in_matches_other_values_and_missing_or_null_fields()
+    {
+        $bool = $this->request('', ['whereNotIns' => ['status' => ['archived']]])['body']['query']['bool'];
+
+        $this->assertSame(['draft', 'missing', 'null'], $this->matching($bool, $this->statusDocuments()));
+    }
+
+    public function test_null_equality_and_inequality_split_on_whether_the_field_exists()
+    {
+        $documents = $this->statusDocuments();
+
+        $this->assertSame(['missing', 'null'], $this->matching($this->boolFor([$this->row('status', '=', null)]), $documents));
+        $this->assertSame(['archived', 'draft'], $this->matching($this->boolFor([$this->row('status', '!=', null)]), $documents));
+    }
+
+    public function test_inequality_and_not_null_exclude_missing_or_null_fields()
+    {
+        $bool = $this->boolFor([$this->row('status', '!=', 'archived'), $this->row('status', '!=', null)]);
+
+        $this->assertSame(['draft'], $this->matching($bool, $this->statusDocuments()));
     }
 
     public function test_order_by_sorts_in_the_given_order()
