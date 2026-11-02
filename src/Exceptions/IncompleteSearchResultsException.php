@@ -14,9 +14,9 @@ class IncompleteSearchResultsException extends RuntimeException
      * Create an exception from a raw search response.
      *
      * @param  array  $results
-     * @return static
+     * @return self
      */
-    public static function fromResults(array $results): static
+    public static function fromResults(array $results): self
     {
         $failed = (int) ($results['_shards']['failed'] ?? 0);
         $reasons = array_filter(array_map(
@@ -24,7 +24,7 @@ class IncompleteSearchResultsException extends RuntimeException
             $results['_shards']['failures'] ?? []
         ));
 
-        return new static(sprintf(
+        return new self(sprintf(
             'Elasticsearch returned incomplete results (%s%s)%s.',
             $failed > 0 ? "{$failed} failed shard(s)" : 'no failed shards',
             ! empty($results['timed_out']) ? ', timed out' : '',
