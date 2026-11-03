@@ -52,6 +52,7 @@
     "scripts": {
         "test": "vendor/bin/phpunit",
         "test-f": "vendor/bin/phpunit --filter",
+        "test:integration": "vendor/bin/phpunit --testsuite Integration --fail-on-skipped",
         "analyse": "vendor/bin/phpstan analyse --memory-limit=1G"
     },
     "extra": {

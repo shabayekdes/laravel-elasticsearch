@@ -118,3 +118,82 @@ jobs:
 
       - name: Run static analysis
         run: composer analyse -- --no-progress --error-format=github
+
+  # Runs tests/Integration against a real Elasticsearch server of each
+  # supported major, with the matching client major.
+  integration:
+    name: Integration / Elasticsearch ${{ matrix.elasticsearch }} / client ${{ matrix.client }}
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { elasticsearch: '8.19.23', client: '^8.16' }
+          - { elasticsearch: '9.5.5', client: '^9.0' }
+
+    services:
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:${{ matrix.elasticsearch }}
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: 'false'
+          # Allocate shards even when the runner disk is nearly full (test data is tiny).
+          cluster.routing.allocation.disk.threshold_enabled: 'false'
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' || exit 1"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-retries 30
+
+    env:
+      ELASTICSEARCH_URL: http://localhost:9200
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.3'
+          extensions: curl, dom, libxml, mbstring, pdo_sqlite, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-integration-${{ matrix.elasticsearch }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ runner.os }}-integration-${{ matrix.elasticsearch }}-
+
+      - name: Select the client major matching the server
+        run: composer require --no-update --no-interaction "elasticsearch/elasticsearch:${{ matrix.client }}"
+
+      - name: Install dependencies
+        run: composer update --prefer-dist --no-interaction --no-progress --prefer-stable
+
+      - name: Wait for Elasticsearch
+        run: |
+          for attempt in $(seq 1 60); do
+            curl -fs "$ELASTICSEARCH_URL/_cluster/health?wait_for_status=yellow&timeout=5s" && exit 0
+            sleep 2
+          done
+          echo "Elasticsearch did not become healthy." >&2
+          exit 1
+
+      - name: Show versions
+        run: |
+          curl -fs "$ELASTICSEARCH_URL" | jq -r '"elasticsearch server \(.version.number)"'
+          composer show --format=json | jq -r '.installed[] | select(.name | test("^(laravel/framework|laravel/scout|elasticsearch/elasticsearch|elastic/transport)$")) | "\(.name) \(.version)"'
+
+      - name: Execute integration tests
+        run: composer test:integration

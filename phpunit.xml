@@ -11,10 +11,15 @@
   failOnRisky="true"
   displayDetailsOnTestsThatTriggerDeprecations="true"
   displayDetailsOnTestsThatTriggerWarnings="true"
+  defaultTestSuite="Unit"
 >
     <testsuites>
         <testsuite name="Unit">
             <directory suffix="Test.php">./tests/Unit</directory>
+        </testsuite>
+        <!-- Runs against a real Elasticsearch server; opt in with "composer test:integration". -->
+        <testsuite name="Integration">
+            <directory suffix="Test.php">./tests/Integration</directory>
         </testsuite>
     </testsuites>
     <source>

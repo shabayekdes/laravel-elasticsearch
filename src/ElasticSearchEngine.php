@@ -269,7 +269,9 @@ class ElasticSearchEngine extends Engine
 
         parse_str($request->getUri()->getQuery(), $query);
         $sent = json_decode((string) $request->getBody(), true) ?: [];
-        $expected = json_decode(json_encode($params['body']), true);
+        // Encode like the client's serializer, so whole-number floats such as a
+        // 1.0 score in search_after compare equal to what was sent.
+        $expected = json_decode(json_encode($params['body'], JSON_PRESERVE_ZERO_FRACTION), true);
         $changed = [];
 
         foreach (SearchBuilder::CURSOR_MANAGED_PARAMETERS as $key) {

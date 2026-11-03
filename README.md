@@ -123,7 +123,7 @@ php artisan scout:index "App\Models\Post"     # create the index (left untouched
 php artisan scout:delete-index "App\Models\Post"
 ```
 
-A new index gets these default analysis settings: a `default` analyzer using the standard tokenizer, the `html_strip` character filter, lowercasing and a `word_delimiter` filter that splits words on punctuation and letter/number boundaries and also indexes the joined form (`wi-fi` is indexed as `wi`, `fi` and `wifi`; `iphone15` as `iphone`, `15` and `iphone15`).
+A new index gets these default analysis settings: a `default` analyzer using the standard tokenizer, the `html_strip` character filter, lowercasing and a `word_delimiter` filter that splits tokens on letter/number boundaries and inner punctuation such as dots, and also indexes the joined form (`iphone15` is indexed as `iphone`, `15` and `iphone15`; `wi.fi` as `wi`, `fi` and `wifi`). The standard tokenizer already splits words on hyphens, so `wi-fi` is indexed as `wi` and `fi` only.
 
 ### Mappings and custom settings
 
@@ -378,7 +378,7 @@ The guard cannot detect one deliberate workaround: a callback that sends an unsa
 - Semantic and hybrid searches (Scout 11) are not supported and throw a `NotSupportedException`.
 - `where()` operators beyond `=` require Scout 11.
 - Client certificates (mutual TLS) are not configurable.
-- The test suite runs against fake HTTP responses only. The engine has not yet been verified against a real Elasticsearch 8 or 9 server; integration tests are planned before the 1.0.0 release.
+- The integration tests run against single-node servers with security disabled. Secured clusters (TLS, API keys, basic authentication), multi-node clusters, Elastic Cloud and timed-out searches are not covered by real-server tests (see [Integration tests](#integration-tests)).
 
 ## Upgrading from 0.4
 
@@ -391,7 +391,42 @@ composer test      # PHPUnit
 composer analyse   # Larastan (PHPStan level 5)
 ```
 
-The test suite uses fake HTTP responses and needs no Elasticsearch server. Code style is checked by StyleCI.
+The unit test suite uses fake HTTP responses and needs no Elasticsearch server. Code style is checked by StyleCI.
+
+### Integration tests
+
+The `Integration` test suite (`tests/Integration`) runs the engine against a real Elasticsearch server over HTTP. It is opt-in: `composer test` never runs it. It needs Docker (or any reachable server) and the client major that matches the server.
+
+| Server | Client | Start the server | `ELASTICSEARCH_URL` |
+|---|---|---|---|
+| Elasticsearch 8.19 | `elasticsearch/elasticsearch` ^8.16 | `docker compose up -d --wait elasticsearch8` | `http://localhost:9208` |
+| Elasticsearch 9.5 | `elasticsearch/elasticsearch` ^9.0 | `docker compose up -d --wait elasticsearch9` | `http://localhost:9209` |
+
+```bash
+# Elasticsearch 9 (Composer installs the 9.x client by default)
+docker compose up -d --wait elasticsearch9
+ELASTICSEARCH_URL=http://localhost:9209 composer test:integration
+
+# Elasticsearch 8: install the 8.x client first, and restore composer.json afterwards
+composer require --no-update elasticsearch/elasticsearch:^8.16 && composer update
+docker compose up -d --wait elasticsearch8
+ELASTICSEARCH_URL=http://localhost:9208 composer test:integration
+
+docker compose down
+```
+
+The containers in `docker-compose.yml` run a single node with security and the disk watermark check disabled; they are for testing only. For a secured server, also set `ELASTICSEARCH_USERNAME` and `ELASTICSEARCH_PASSWORD`, or `ELASTICSEARCH_API_KEY`, and `ELASTICSEARCH_CA_BUNDLE`. Without `ELASTICSEARCH_URL` every integration test fails instead of being skipped, and the suite also fails when the server and client majors differ.
+
+Each test writes to indexes named `scout_it_<random>_*` and deletes them afterwards, even when it fails, so the suite can run against a shared development server.
+
+Covered against a real server:
+
+- **Indexes**: `createIndex()` with mappings and settings, the default analysis settings and their tokens, existing indexes left untouched, `deleteIndex()`, `scout:index`, `scout:delete-index` and `scout:elasticsearch:create`.
+- **Indexing**: bulk indexing in chunks under the Scout key, updates on save, per-document mapping errors reported by `BulkOperationException` while the other documents are indexed, and bulk deletes, including models that were never indexed.
+- **Searching**: full-text search and model hydration in relevance order, `where`, `whereIn`, `whereNotIn` and `where(field, null)` with null and missing fields, `orderBy`, `take`, `paginate` totals, `raw()`, `keys()` and `options()`.
+- **Cursors**: every document exactly once, stable order across equal sort values, the point in time id returned by each page sent with the next, a consistent snapshot while documents are added, the point in time closed after completion, early stops and exceptions, and pages that terminated early or had failed shards rejected with `IncompleteSearchResultsException`.
+- **Flush and deletes**: `scout:flush` deletes the model's documents with `delete_by_query` and keeps the index and other indexes, flushing a missing index succeeds, and `unsearchable()` on a query removes only the matching documents.
+- **Soft deletes**: soft-deleted models stay indexed with `__soft_deleted`, normal searches and cursors exclude them, `withTrashed()` and `onlyTrashed()`, restore and force delete.
 
 ## License
 

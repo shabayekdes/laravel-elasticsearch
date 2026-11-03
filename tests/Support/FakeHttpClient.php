@@ -86,6 +86,7 @@ class FakeHttpClient implements ClientInterface
         return new Response($status, [
             'Content-Type' => 'application/json',
             'X-Elastic-Product' => 'Elasticsearch',
-        ], json_encode((object) $body));
+        // Elasticsearch writes whole-number floats with a fraction (1.0, not 1).
+        ], json_encode((object) $body, JSON_PRESERVE_ZERO_FRACTION));
     }
 }

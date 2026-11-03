@@ -25,6 +25,7 @@ Version 1.0 rewrites the engine for current Laravel, Scout and Elasticsearch ver
 - `IncompleteSearchResultsException` for cursor pages that timed out, terminated early or had failed shards; the point in time is closed on every failure.
 - Hit metadata (`_score`, `_index` and the other `_`-prefixed hit fields) on mapped models through `scoutMetadata()`, plus `lazyMap()` and `mapIdsFrom()`.
 - Larastan (PHPStan level 5) static analysis, run with `composer analyse`.
+- An opt-in integration test suite that runs against real Elasticsearch 8 and 9 servers (`composer test:integration`, `docker-compose.yml`).
 - `CHANGELOG.md` and `UPGRADE.md`.
 
 ### Changed
