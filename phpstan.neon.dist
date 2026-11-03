@@ -1,0 +1,33 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 5
+    paths:
+        - src
+
+    ignoreErrors:
+        # Scout's engine API types models as Illuminate\Database\Eloquent\Model,
+        # but every model it hands an engine uses the Laravel\Scout\Searchable
+        # trait, which PHPStan cannot infer from the Model type. Only the
+        # Searchable methods the engine calls are listed; any other undefined
+        # method is still reported.
+        -
+            identifier: method.notFound
+            message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Model\:\:(searchableAs|indexableAs|toSearchableArray|scoutMetadata|withScoutMetadata|getScoutKey|getScoutKeyName|getScoutKeyType|getScoutModelsByIds|queryScoutModelsByIds)\(\)\.$#'
+            path: src
+        -
+            identifier: method.notFound
+            message: '#^Call to an undefined method Illuminate\\Support\\HigherOrderCollectionProxy<.+>\:\:pushSoftDeleteMetadata\(\)\.$#'
+            path: src/ElasticSearchEngine.php
+            count: 1
+
+        # Laravel\Scout\Engines\Engine::cursor() is documented as returning an
+        # Eloquent Collection, but its own implementation returns the
+        # LazyCollection of lazyMap(), and Builder::cursor() documents a
+        # LazyCollection. This engine returns a LazyCollection as well.
+        -
+            identifier: method.childReturnType
+            message: '#^Return type \(Illuminate\\Support\\LazyCollection\) of method Shabayek\\Elastic\\ElasticSearchEngine\:\:cursor\(\) should be compatible with return type \(Illuminate\\Database\\Eloquent\\Collection\) of method Laravel\\Scout\\Engines\\Engine\:\:cursor\(\)$#'
+            path: src/ElasticSearchEngine.php
+            count: 1

@@ -18,18 +18,26 @@
             "role": "Developer"
         }
     ],
+    "support": {
+        "issues": "https://github.com/shabayekdes/laravel-elasticsearch/issues",
+        "source": "https://github.com/shabayekdes/laravel-elasticsearch"
+    },
     "require": {
-        "php": "^7.3|^7.4|^8.0",
-        "elasticsearch/elasticsearch": "^7.17",
-        "guzzlehttp/guzzle": "^7.4",
-        "illuminate/contracts": "^8.0",
-        "laravel/scout": "^9.4"
+        "php": "^8.2",
+        "elasticsearch/elasticsearch": "^8.16 || ^9.0",
+        "guzzlehttp/guzzle": "^7.2",
+        "guzzlehttp/psr7": "^2.0",
+        "illuminate/console": "^12.0 || ^13.0",
+        "illuminate/contracts": "^12.0 || ^13.0",
+        "illuminate/database": "^12.0 || ^13.0",
+        "illuminate/support": "^12.0 || ^13.0",
+        "laravel/scout": "^10.24 || ^11.0"
     },
     "require-dev": {
-        "nunomaduro/collision": "^5.10",
-        "mockery/mockery": "dev-master",
-        "orchestra/testbench": "^6.0",
-        "phpunit/phpunit": "^9.5"
+        "larastan/larastan": "^3.13",
+        "mockery/mockery": "^1.6",
+        "orchestra/testbench": "^10.0 || ^11.0",
+        "phpunit/phpunit": "^11.5.3 || ^12.0"
     },
     "autoload": {
         "psr-4": {
@@ -43,23 +51,25 @@
     },
     "scripts": {
         "test": "vendor/bin/phpunit",
-        "test-f": "vendor/bin/phpunit --filter"
+        "test-f": "vendor/bin/phpunit --filter",
+        "test:integration": "vendor/bin/phpunit --testsuite Integration --fail-on-skipped",
+        "analyse": "vendor/bin/phpstan analyse --memory-limit=1G"
     },
     "extra": {
         "laravel": {
             "providers": [
                 "Shabayek\\Elastic\\Providers\\ElasticServiceProvider"
-            ],
-            "aliases": {
-                "Elastic": "Shabayek\\Elastic\\Facade"
-            }
+            ]
         }
     },
     "config": {
+        "allow-plugins": {
+            "php-http/discovery": false
+        },
         "optimize-autoloader": true,
         "preferred-install": "dist",
         "sort-packages": true
     },
-    "minimum-stability": "dev",
+    "minimum-stability": "stable",
     "prefer-stable": true
 }

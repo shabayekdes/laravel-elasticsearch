@@ -2,14 +2,33 @@
 
 namespace Shabayek\Elastic\Providers;
 
-use Elasticsearch\ClientBuilder;
+use Elastic\Elasticsearch\Client;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Scout\EngineManager;
+use Shabayek\Elastic\Connection\ClientFactory;
 use Shabayek\Elastic\Console\Commands\ElasticSearchIndex;
 use Shabayek\Elastic\ElasticSearchEngine;
 
 class ElasticServiceProvider extends ServiceProvider
 {
+    /**
+     * Register the service provider.
+     *
+     * @return void
+     */
+    public function register()
+    {
+        $this->mergeConfigFrom(__DIR__.'/../../config/elasticsearch.php', 'elasticsearch');
+
+        $this->app->singleton(ClientFactory::class);
+
+        $this->app->singleton(Client::class, function ($app) {
+            return $app->make(ClientFactory::class)->make($app['config']->get('elasticsearch', []));
+        });
+
+        $this->app->alias(Client::class, 'elasticsearch');
+    }
+
     /**
      * Bootstrap any application services.
      *
@@ -19,25 +38,19 @@ class ElasticServiceProvider extends ServiceProvider
     {
         $this->publishes([
             __DIR__.'/../../config/elasticsearch.php' => config_path('elasticsearch.php'),
-        ]);
+        ], ['elasticsearch-config', 'config']);
 
-        $this->app->singleton('elasticsearch', function ($app) {
-            $host = $app['config']->get('elasticsearch.host');
-            $port = $app['config']->get('elasticsearch.port');
-            $username = $app['config']->get('elasticsearch.username');
-            $password = $app['config']->get('elasticsearch.password');
-
-            return ClientBuilder::create()
-                ->setHosts([
-                    $host.':'.$port,
-                ])
-                ->setBasicAuthentication($username, $password)
-                ->build();
-        });
-        resolve(EngineManager::class)->extend('elasticsearch', function ($app) {
-            return new ElasticSearchEngine(
-                app('elasticsearch')
-            );
+        $this->callAfterResolving(EngineManager::class, function (EngineManager $manager) {
+            $manager->extend('elasticsearch', function ($app) {
+                return new ElasticSearchEngine(
+                    $app->make(Client::class),
+                    (bool) $app['config']->get('scout.soft_delete', false),
+                    (int) $app['config']->get('elasticsearch.indexing.chunk_size', 500),
+                    $app['config']->get('elasticsearch.indexing.refresh', false) ?? false,
+                    (int) $app['config']->get('elasticsearch.cursor.batch_size', 1000),
+                    (string) $app['config']->get('elasticsearch.cursor.keep_alive', '1m')
+                );
+            });
         });
 
         if ($this->app->runningInConsole()) {
@@ -45,15 +58,5 @@ class ElasticServiceProvider extends ServiceProvider
                 ElasticSearchIndex::class,
             ]);
         }
-    }
-
-    /**
-     * Register the service provider.
-     *
-     * @return void
-     */
-    public function register()
-    {
-        $this->mergeConfigFrom(__DIR__.'/../../config/elasticsearch.php', 'elasticsearch');
     }
 }

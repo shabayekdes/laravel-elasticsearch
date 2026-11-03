@@ -1,0 +1,33 @@
+# Elasticsearch servers for the integration test suite (tests/Integration).
+#
+#   docker compose up -d --wait elasticsearch8   # http://localhost:9208
+#   docker compose up -d --wait elasticsearch9   # http://localhost:9209
+#
+# Security is disabled so the containers need no certificates or passwords.
+# They are for local testing only; never use this configuration in production.
+
+x-elasticsearch: &elasticsearch
+  environment:
+    discovery.type: single-node
+    xpack.security.enabled: 'false'
+    # Allocate shards even when the host disk is nearly full (test data is tiny).
+    cluster.routing.allocation.disk.threshold_enabled: 'false'
+    ES_JAVA_OPTS: -Xms512m -Xmx512m
+  healthcheck:
+    test: ['CMD-SHELL', 'curl -fs "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s" || exit 1']
+    interval: 5s
+    timeout: 10s
+    retries: 30
+  ulimits:
+    memlock: { soft: -1, hard: -1 }
+
+services:
+  elasticsearch8:
+    <<: *elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.23
+    ports: ['9208:9200']
+
+  elasticsearch9:
+    <<: *elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.5
+    ports: ['9209:9200']

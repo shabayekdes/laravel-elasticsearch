@@ -1,0 +1,36 @@
+<?php
+
+namespace Shabayek\Elastic\Exceptions;
+
+use RuntimeException;
+
+/**
+ * Thrown when Elasticsearch returns partial results (failed shards, a timeout
+ * or early termination) while iterating a cursor, which would otherwise skip
+ * records.
+ */
+class IncompleteSearchResultsException extends RuntimeException
+{
+    /**
+     * Create an exception from a raw search response.
+     *
+     * @param  array  $results
+     * @return self
+     */
+    public static function fromResults(array $results): self
+    {
+        $failed = (int) ($results['_shards']['failed'] ?? 0);
+        $reasons = array_filter(array_map(
+            fn ($failure) => $failure['reason']['reason'] ?? $failure['reason']['type'] ?? null,
+            $results['_shards']['failures'] ?? []
+        ));
+
+        return new self(sprintf(
+            'Elasticsearch returned incomplete results (%s%s%s)%s.',
+            $failed > 0 ? "{$failed} failed shard(s)" : 'no failed shards',
+            ! empty($results['timed_out']) ? ', timed out' : '',
+            ! empty($results['terminated_early']) ? ', terminated early' : '',
+            $reasons ? ': '.implode('; ', array_unique($reasons)) : ''
+        ));
+    }
+}
